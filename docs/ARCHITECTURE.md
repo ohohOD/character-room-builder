@@ -1,4 +1,4 @@
-﻿# 아키텍처와 신뢰 경계
+# 아키텍처와 신뢰 경계
 
 RoomDocument → 배치·충돌 규칙 → Canvas2D renderer → 화면·PNG 출력 순서로 구성한다. 렌더러는 Google, 계정, 네트워크를 알지 않는다. 외부 데이터 소스는 RoomDocument를 만들거나 저장하는 어댑터일 뿐이다.
 
@@ -14,6 +14,12 @@ RoomDocument → 배치·충돌 규칙 → Canvas2D renderer → 화면·PNG 출
 ## 기본 모드
 
 로그인과 네트워크 요청이 없다. 편집은 브라우저 메모리에서 수행하고 사용자가 명시적으로 방 코드, JSON, PNG를 내보낸다.
+
+## Furniture Foundry
+
+FurnitureDefinition → 복셀 정렬 → Canvas2D 아이소메트릭 렌더러 순서로 동작한다. 편집 중 데이터는 브라우저 메모리에만 있고, 사용자가 공유를 눌렀을 때만 FURN1 코드 또는 URL fragment(#)를 만든다. URL fragment는 HTTP 요청에 포함되지 않으며 별도의 서버 저장소나 계정 연결을 요구하지 않는다.
+
+가구 데이터는 렌더러와 분리되어 같은 FURN1 코드와 rendererVersion이 같은 결과를 만들 수 있어야 한다. 방 배치기가 가구를 소비할 때도 완성된 FurnitureDefinition을 하나의 오브젝트로 취급한다.
 
 ## 공개 시트 모드
 

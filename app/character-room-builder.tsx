@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { drawRoom } from "../lib/renderer/draw-room";
 import {
@@ -55,6 +56,10 @@ export function CharacterRoomBuilder() {
     <main className="shell">
       <header className="masthead">
         <div>
+          <nav className="product-nav" aria-label="프로젝트 화면">
+            <Link href="/" aria-current="page">방 보기</Link>
+            <Link href="/furniture">가구 공방</Link>
+          </nav>
           <p className="eyebrow">PROCEDURAL CANVAS ROOM · SCENE 01</p>
           <h1>Character Room Builder</h1>
         </div>

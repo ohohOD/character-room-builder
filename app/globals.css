@@ -30,7 +30,9 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -80,6 +82,30 @@ h1 {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.72;
+}
+
+.product-nav {
+  display: flex;
+  gap: 18px;
+  margin-bottom: 15px;
+}
+
+.product-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.product-nav a:hover,
+.product-nav a[aria-current="page"] {
+  border-bottom-color: var(--sage);
+  color: var(--sage);
 }
 
 .workspace {
@@ -314,7 +340,11 @@ h1 {
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible,
+canvas:focus-visible {
   outline: 2px solid var(--sage);
   outline-offset: 2px;
 }
@@ -371,6 +401,280 @@ input:focus-visible {
   color: var(--ink);
 }
 
+.foundry-shell {
+  width: min(1380px, calc(100% - 40px));
+}
+
+.foundry-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 350px;
+  gap: 30px;
+  margin-top: 28px;
+}
+
+.foundry-stage {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.foundry-stage-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 78px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.foundry-stage-bar p {
+  margin-bottom: 3px;
+  color: var(--sage);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+}
+
+.foundry-stage-bar h2 {
+  margin-bottom: 0;
+  font: 700 21px / 1.2 Georgia, "Times New Roman", serif;
+}
+
+.tool-switch {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+
+.tool-switch button {
+  min-width: 74px;
+  min-height: 44px;
+  padding: 8px 13px;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tool-switch button + button {
+  border-left: 1px solid var(--line-strong);
+}
+
+.tool-switch button[data-active="true"] {
+  color: #ffffff;
+  background: var(--ink);
+}
+
+.foundry-canvas {
+  display: block;
+  width: 100%;
+  height: 650px;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.foundry-help {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 11px 18px 13px;
+  border-top: 1px solid var(--line);
+}
+
+.foundry-help p {
+  margin-bottom: 0;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.foundry-panel {
+  min-width: 0;
+}
+
+.foundry-panel section {
+  padding: 19px 0;
+  border-top: 1px solid var(--line);
+}
+
+.foundry-panel section:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.foundry-panel h2 {
+  margin-bottom: 10px;
+  font: 700 19px / 1.25 Georgia, "Times New Roman", serif;
+}
+
+.panel-copy {
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.62;
+}
+
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.text-button {
+  min-height: 44px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--ink);
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.text-button:hover {
+  border-color: var(--sage);
+  color: var(--sage);
+}
+
+.layer-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.layer-heading output {
+  color: var(--sage);
+  font: 700 12px / 1.4 "Cascadia Code", Consolas, monospace;
+}
+
+.layer-range {
+  width: 100%;
+  min-height: 44px;
+  accent-color: var(--sage);
+}
+
+.control-label,
+.code-label {
+  display: block;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.control-label {
+  margin: 1px 0 -8px;
+}
+
+.code-label {
+  margin-bottom: 7px;
+}
+
+.control-note {
+  margin: 8px 0 0;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.48;
+}
+
+.material-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.material-fieldset legend {
+  margin-bottom: 9px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.material-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid var(--line);
+}
+
+.material-list button {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: center;
+  gap: 8px;
+  min-height: 45px;
+  padding: 7px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  background: transparent;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.material-list button:nth-child(odd) {
+  border-right: 1px solid var(--line);
+}
+
+.material-list button[data-active="true"] {
+  color: var(--sage);
+  background: var(--sage-soft);
+  font-weight: 750;
+}
+
+.material-list i {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(48, 44, 39, 0.34);
+  border-radius: 2px;
+}
+
+.compact-field {
+  margin-top: 11px;
+}
+
+.compact-field input,
+.compact-field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+}
+
+.code-area {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.62);
+  font: 10px / 1.5 "Cascadia Code", Consolas, monospace;
+}
+
+.code-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.code-actions .button {
+  min-height: 44px;
+  padding-inline: 6px;
+  font-size: 10px;
+}
 @media (max-width: 900px) {
   .masthead {
     display: grid;
@@ -384,6 +688,25 @@ input:focus-visible {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 0 24px;
+  }
+
+  .foundry-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .foundry-panel {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 24px;
+  }
+
+  .foundry-panel section:first-child {
+    padding-top: 19px;
+    border-top: 1px solid var(--line);
+  }
+
+  .foundry-canvas {
+    height: 590px;
   }
 
   .intro-section {
@@ -432,6 +755,32 @@ input:focus-visible {
 
   .panel {
     display: block;
+  }
+
+  .foundry-shell {
+    width: min(100% - 24px, 1380px);
+  }
+
+  .foundry-stage-bar {
+    align-items: flex-start;
+    padding: 12px;
+  }
+
+  .foundry-canvas {
+    height: 500px;
+  }
+
+  .foundry-help,
+  .foundry-panel {
+    display: block;
+  }
+
+  .foundry-help p + p {
+    margin-top: 4px;
+  }
+
+  .code-actions {
+    grid-template-columns: 1fr;
   }
 
   .actions {

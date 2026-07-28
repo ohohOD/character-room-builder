@@ -1,3 +1,5 @@
+import type { FurnitureDefinition } from "../furniture/types";
+
 export type PaletteId = "sage" | "rose" | "night";
 
 export type RoomObjectType =
@@ -12,15 +14,27 @@ export type RoomObjectType =
   | "shelf"
   | "window";
 
-export interface RoomObject {
+interface RoomObjectBase {
   id: string;
-  type: RoomObjectType;
   x: number;
   y: number;
   z?: number;
   parentId?: string;
   variant?: string;
 }
+
+export interface BuiltInRoomObject extends RoomObjectBase {
+  type: RoomObjectType;
+}
+
+export interface PlacedFurnitureObject extends RoomObjectBase {
+  type: "furniture";
+  definition: FurnitureDefinition;
+  rotation: 0 | 1 | 2 | 3;
+  wall?: "back" | "left";
+}
+
+export type RoomObject = BuiltInRoomObject | PlacedFurnitureObject;
 
 export interface RoomDocument {
   schemaVersion: 1;

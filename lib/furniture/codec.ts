@@ -3,14 +3,15 @@ import type {
   FurnitureLicense,
   FurnitureMaterialId,
   FurniturePlacement,
+  FurnitureResolution,
   FurnitureVoxel,
 } from "./types";
 import { normalizeFurnitureColor } from "./colors.ts";
 
 const PREFIX = "FURN1";
-const MAX_CODE_LENGTH = 48_000;
+const MAX_CODE_LENGTH = 180_000;
 const MAX_INPUT_LENGTH = MAX_CODE_LENGTH + 4_096;
-const MAX_VOXELS = 1_200;
+const MAX_VOXELS = 9_600;
 const PLACEMENTS = new Set<FurniturePlacement>(["volume", "floor", "wall"]);
 const MATERIALS = new Set<FurnitureMaterialId>([
   "wood",
@@ -99,17 +100,22 @@ export function normalizeFurniture(value: unknown): FurnitureDefinition {
     throw new Error("지원하지 않는 가구 배치 면이에요.");
   }
 
-  const width = readBoundedInteger(value.grid.width, 4, 16, "가로 크기");
+  const resolution = value.resolution ?? 1;
+  if (resolution !== 1 && resolution !== 2) {
+    throw new Error("지원하지 않는 가구 조립 해상도예요.");
+  }
+
+  const width = readBoundedInteger(value.grid.width, 4, 16 * resolution, "가로 크기");
   const depth = readBoundedInteger(
     value.grid.depth,
     placement === "wall" ? 1 : 4,
-    placement === "wall" ? 1 : 16,
+    placement === "wall" ? 1 : 16 * resolution,
     "깊이 크기",
   );
   const height = readBoundedInteger(
     value.grid.height,
     placement === "floor" ? 1 : placement === "wall" ? 4 : 2,
-    placement === "floor" ? 1 : 12,
+    placement === "floor" ? 1 : 12 * resolution,
     "높이 크기",
   );
   if (value.voxels.length > Math.min(width * depth * height, MAX_VOXELS)) {
@@ -160,6 +166,7 @@ export function normalizeFurniture(value: unknown): FurnitureDefinition {
     schemaVersion: 1,
     rendererVersion: 1,
     placement: placement as FurniturePlacement,
+    resolution: resolution as FurnitureResolution,
     name: value.name.trim().slice(0, 40) || "이름 없는 가구",
     grid: { width, depth, height },
     voxels: [...voxelMap.values()].sort(
@@ -184,6 +191,7 @@ function serializeFurniture(furniture: FurnitureDefinition): object {
     ...(furniture.placement === "volume"
       ? {}
       : { placement: furniture.placement }),
+    ...(furniture.resolution === 1 ? {} : { resolution: furniture.resolution }),
     name: furniture.name,
     grid: furniture.grid,
     voxels: furniture.voxels,

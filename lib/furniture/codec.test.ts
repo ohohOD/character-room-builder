@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { decodeFurniture, encodeFurniture } from "./codec.ts";
+import { getFurnitureRenderGeometry } from "./placement.ts";
+import { convertFurnitureResolution } from "./resolution.ts";
 import type { FurnitureDefinition } from "./types.ts";
 
 function makeFurniture(): FurnitureDefinition {
@@ -8,6 +10,7 @@ function makeFurniture(): FurnitureDefinition {
     schemaVersion: 1,
     rendererVersion: 1,
     placement: "volume",
+    resolution: 1,
     name: "  한글 의자  ",
     grid: { width: 4, depth: 4, height: 2 },
     voxels: [
@@ -109,6 +112,23 @@ test("표면색을 정규화하고 FURN1에서 결정론적으로 왕복한다",
   assert.equal(encodeFurniture(decoded), encodeFurniture(colored));
 });
 
+test("정밀 2× 조립은 외형 크기를 유지하고 기존 셀을 세분화한다", () => {
+  const standard = makeFurniture();
+  const fine = convertFurnitureResolution(standard, 2);
+  const restored = convertFurnitureResolution(fine, 1);
+  const standardGeometry = getFurnitureRenderGeometry(standard);
+  const fineGeometry = getFurnitureRenderGeometry(fine);
+
+  assert.equal(fine.resolution, 2);
+  assert.deepEqual(fine.grid, { width: 8, depth: 8, height: 4 });
+  assert.equal(fine.voxels.length, standard.voxels.length * 8);
+  assert.equal(fineGeometry.width, standardGeometry.width);
+  assert.equal(fineGeometry.depth, standardGeometry.depth);
+  assert.equal(fineGeometry.height, standardGeometry.height);
+  assert.equal(encodeFurniture(restored), encodeFurniture(standard));
+  assert.equal(decodeFurniture(encodeFurniture(fine)).resolution, 2);
+});
+
 test("체크섬과 URL-safe Base64 형식을 검증한다", () => {
   const code = encodeFurniture(makeFurniture());
   const damaged = code.slice(0, -1) + (code.endsWith("0") ? "1" : "0");
@@ -128,6 +148,10 @@ test("스키마, 좌표, 재료, 라이선스와 이미지 출처를 검증한�
   assert.throws(
     () => decodeFurniture(mutateCode(code, (value) => { value.placement = "ceiling"; })),
     /배치 면/,
+  );
+  assert.throws(
+    () => decodeFurniture(mutateCode(code, (value) => { value.resolution = 3; })),
+    /조립 해상도/,
   );
   assert.throws(
     () => decodeFurniture(mutateCode(code, (value) => {
@@ -178,14 +202,15 @@ test("스키마, 좌표, 재료, 라이선스와 이미지 출처를 검증한�
 });
 
 test("과도한 입력과 코드 크기를 거부한다", () => {
-  assert.throws(() => decodeFurniture("x".repeat(52_097)), /너무 커요/);
+  assert.throws(() => decodeFurniture("x".repeat(184_097)), /너무 커요/);
 
   const oversized = makeFurniture();
-  oversized.grid = { width: 16, depth: 16, height: 12 };
-  oversized.voxels = Array.from({ length: 1_200 }, (_, index) => ({
-    x: index % 16,
-    y: Math.floor(index / 16) % 16,
-    z: Math.floor(index / 256),
+  oversized.resolution = 2;
+  oversized.grid = { width: 32, depth: 32, height: 24 };
+  oversized.voxels = Array.from({ length: 9_600 }, (_, index) => ({
+    x: index % 32,
+    y: Math.floor(index / 32) % 32,
+    z: Math.floor(index / 1024),
     material: "woodDark" as const,
   }));
   assert.throws(() => encodeFurniture(oversized), /코드가 너무 커요/);

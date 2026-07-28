@@ -21,6 +21,7 @@ import {
   FURNITURE_COLOR_PALETTE,
   normalizeFurnitureColor,
 } from "../../lib/furniture/colors";
+import { convertFurnitureResolution } from "../../lib/furniture/resolution";
 import {
   DEFAULT_PRESET_BY_PLACEMENT,
   FURNITURE_MATERIALS,
@@ -32,6 +33,7 @@ import type {
   FurnitureLicense,
   FurnitureMaterialId,
   FurniturePlacement,
+  FurnitureResolution,
 } from "../../lib/furniture/types";
 
 type Tool = "paint" | "erase";
@@ -345,6 +347,26 @@ export function FurnitureFoundry() {
     flash(next.name + " 예시를 열었어요.");
   }
 
+  function changeResolution(resolution: FurnitureResolution): void {
+    if (furniture.resolution === resolution) return;
+    const previousResolution = furniture.resolution;
+    const next = convertFurnitureResolution(furniture, resolution);
+    setFurniture(next);
+    setActiveLayer((layer) => {
+      if (next.placement !== "volume") return 0;
+      return resolution > previousResolution
+        ? Math.min(next.grid.height - 1, layer * 2 + 1)
+        : Math.min(next.grid.height - 1, Math.floor(layer / 2));
+    });
+    setHover(null);
+    clearPublishedCode();
+    flash(
+      resolution === 2
+        ? "정밀 조립으로 바꿨어요. 기존 모양은 유지되고 셀이 더 촘촘해졌어요."
+        : "기본 조립으로 바꿨어요. 작은 셀은 대표 재료로 합쳐졌어요.",
+    );
+  }
+
   function makeCode(): string | null {
     try {
       const code = encodeFurniture(furniture);
@@ -559,6 +581,29 @@ export function FurnitureFoundry() {
               </p>
             </section>
           )}
+
+          <section>
+            <p className="section-kicker">ASSEMBLY DETAIL</p>
+            <h2>조립 해상도</h2>
+            <div className="resolution-switch" aria-label="조립 해상도">
+              {([1, 2] as FurnitureResolution[]).map((resolution) => (
+                <button
+                  type="button"
+                  key={resolution}
+                  aria-pressed={furniture.resolution === resolution}
+                  data-active={furniture.resolution === resolution}
+                  onClick={() => changeResolution(resolution)}
+                >
+                  <strong>{resolution === 1 ? "기본" : "정밀"}</strong>
+                  <span>{resolution}× CELLS</span>
+                </button>
+              ))}
+            </div>
+            <p className="control-note">
+              정밀 2×는 같은 가구 크기 안에서 셀을 축마다 두 배로 나눠 더 부드러운
+              계단형 실루엣을 만들어요.
+            </p>
+          </section>
 
           <section>
             <fieldset className="material-fieldset">

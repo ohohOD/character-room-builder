@@ -12,6 +12,7 @@ export type FurnitureLicense =
   | "CC0-1.0";
 
 export type FurniturePlacement = "volume" | "floor" | "wall";
+export type FurnitureResolution = 1 | 2;
 
 export interface FurnitureVoxel {
   x: number;
@@ -25,6 +26,7 @@ export interface FurnitureDefinition {
   schemaVersion: 1;
   rendererVersion: 1;
   placement: FurniturePlacement;
+  resolution: FurnitureResolution;
   name: string;
   grid: {
     width: number;

@@ -51,6 +51,7 @@ function makeDefinition(
     schemaVersion: 1,
     rendererVersion: 1,
     placement,
+    resolution: 1,
     name,
     grid: { ...grid },
     voxels: [...uniqueVoxels.values()],

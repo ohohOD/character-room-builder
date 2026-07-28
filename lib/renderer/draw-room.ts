@@ -2,15 +2,24 @@ import {
   PALETTES,
   type RoomPalette,
 } from "../room/sample-room";
-import type { RoomDocument, RoomObject } from "../room/types";
+import { FURNITURE_MATERIALS } from "../furniture/presets";
+import {
+  getFurnitureRenderGeometry,
+  getPlacedFurnitureFootprint,
+} from "../furniture/placement";
+import type {
+  PlacedFurnitureObject,
+  RoomDocument,
+  RoomObject,
+} from "../room/types";
 
 type Point = { x: number; y: number };
 type Projector = (x: number, y: number, z?: number) => Point;
 type Random = () => number;
 
-const ROOM_WIDTH = 8;
-const ROOM_DEPTH = 6;
-const WALL_HEIGHT = 4.8;
+export const ROOM_WIDTH = 8;
+export const ROOM_DEPTH = 6;
+export const WALL_HEIGHT = 4.8;
 
 const OBJECT_FOOTPRINTS: Partial<
   Record<RoomObject["type"], { width: number; depth: number }>
@@ -33,7 +42,9 @@ function sortByProjectedDepth(objects: RoomObject[]): RoomObject[] {
     const cached = resolvedDepth.get(object.id);
     if (cached !== undefined) return cached;
 
-    const footprint = OBJECT_FOOTPRINTS[object.type] ?? { width: 0, depth: 0 };
+    const footprint = object.type === "furniture"
+      ? getPlacedFurnitureFootprint(object)
+      : OBJECT_FOOTPRINTS[object.type] ?? { width: 0, depth: 0 };
     let depth = object.x + object.y + footprint.width + footprint.depth;
 
     if (object.parentId && !visiting.has(object.id)) {
@@ -125,6 +136,91 @@ function polygon(
   context.stroke();
 }
 
+function fillPolygon(
+  context: CanvasRenderingContext2D,
+  points: Point[],
+  fill: string,
+): void {
+  tracePolygon(context, points);
+  context.fillStyle = fill;
+  context.fill();
+  // Adjacent Canvas polygons can expose a one-pixel antialiasing seam. Seal it
+  // with the face color; the actual silhouette is stroked once after meshing.
+  context.strokeStyle = fill;
+  context.lineWidth = 0.75;
+  context.lineJoin = "miter";
+  context.stroke();
+}
+
+type MeshPoint = readonly [number, number, number];
+
+interface MeshEdge {
+  count: number;
+  from: Point;
+  to: Point;
+  meshKey: string;
+}
+
+function meshPointKey(point: MeshPoint): string {
+  return `${point[0]},${point[1]},${point[2]}`;
+}
+
+function meshEdgeKey(from: MeshPoint, to: MeshPoint): string {
+  const fromKey = meshPointKey(from);
+  const toKey = meshPointKey(to);
+  return fromKey < toKey ? `${fromKey}|${toKey}` : `${toKey}|${fromKey}`;
+}
+
+function addMeshFace(
+  context: CanvasRenderingContext2D,
+  edges: Map<string, MeshEdge>,
+  orientation: "front" | "side" | "top" | "wall",
+  meshPoints: readonly [MeshPoint, MeshPoint, MeshPoint, MeshPoint],
+  screenPoints: Point[],
+  fill: string,
+  outlineEdges: readonly [boolean, boolean, boolean, boolean] = [true, true, true, true],
+): void {
+  fillPolygon(context, screenPoints, fill);
+  meshPoints.forEach((from, index) => {
+    if (!outlineEdges[index]) return;
+    const nextIndex = (index + 1) % meshPoints.length;
+    const to = meshPoints[nextIndex];
+    const meshKey = meshEdgeKey(from, to);
+    const orientationKey = `${orientation}:${meshKey}`;
+    const current = edges.get(orientationKey);
+    edges.set(orientationKey, {
+      count: (current?.count ?? 0) + 1,
+      from: current?.from ?? screenPoints[index],
+      to: current?.to ?? screenPoints[nextIndex],
+      meshKey,
+    });
+  });
+}
+
+function strokeMeshOutline(
+  context: CanvasRenderingContext2D,
+  edges: Map<string, MeshEdge>,
+  stroke: string,
+): void {
+  const visible = new Map<string, MeshEdge>();
+  edges.forEach((edge) => {
+    if (edge.count === 1 && !visible.has(edge.meshKey)) {
+      visible.set(edge.meshKey, edge);
+    }
+  });
+
+  context.beginPath();
+  visible.forEach((edge) => {
+    context.moveTo(edge.from.x, edge.from.y);
+    context.lineTo(edge.to.x, edge.to.y);
+  });
+  context.strokeStyle = stroke;
+  context.lineWidth = 0.9;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.stroke();
+}
+
 function line(
   context: CanvasRenderingContext2D,
   from: Point,
@@ -152,8 +248,10 @@ function box(
   depth: number,
   height: number,
   color: string,
+  lineWidth = 1,
+  outlineAlpha = 0.72,
 ): void {
-  const outline = withAlpha(palette.ink, 0.72);
+  const outline = withAlpha(palette.ink, outlineAlpha);
   const front = mixColor(color, palette.ink, 0.08);
   const side = mixColor(color, palette.ink, 0.18);
   const top = mixColor(color, "#FFFFFF", 0.16);
@@ -168,6 +266,7 @@ function box(
     ],
     front,
     outline,
+    lineWidth,
   );
   polygon(
     context,
@@ -179,6 +278,7 @@ function box(
     ],
     side,
     outline,
+    lineWidth,
   );
   polygon(
     context,
@@ -190,6 +290,7 @@ function box(
     ],
     top,
     outline,
+    lineWidth,
   );
 }
 
@@ -820,12 +921,225 @@ function drawPlant(
   }
 }
 
+function drawPlacedFurniture(
+  context: CanvasRenderingContext2D,
+  project: Projector,
+  palette: RoomPalette,
+  object: PlacedFurnitureObject,
+  selected: boolean,
+): void {
+  const geometry = getFurnitureRenderGeometry(object.definition, object.rotation);
+  if (geometry.cells.length === 0) return;
+  const baseZ = object.z ?? 0;
+
+  if (object.definition.placement === "wall") {
+    const wall = object.wall ?? "back";
+    const anchor = wall === "back" ? object.x : object.y;
+    const wallPoints = wall === "back"
+      ? [
+          project(anchor, 0.012, baseZ),
+          project(anchor + geometry.width, 0.012, baseZ),
+          project(anchor + geometry.width, 0.012, baseZ + geometry.height),
+          project(anchor, 0.012, baseZ + geometry.height),
+        ]
+      : [
+          project(0.012, anchor, baseZ),
+          project(0.012, anchor + geometry.width, baseZ),
+          project(0.012, anchor + geometry.width, baseZ + geometry.height),
+          project(0.012, anchor, baseZ + geometry.height),
+        ];
+    if (selected) {
+      polygon(context, wallPoints, withAlpha(palette.leaf, 0.08), palette.leaf, 2.2);
+    }
+    const edges = new Map<string, MeshEdge>();
+    geometry.cells
+      .sort((first, second) => first.localZ - second.localZ || first.localX - second.localX)
+      .forEach((cell) => {
+        const color = cell.color ?? FURNITURE_MATERIALS[cell.material].color;
+        const from = anchor + cell.localX * geometry.cellSize;
+        const z = baseZ + cell.localZ * geometry.cellSize;
+        const points = wall === "back"
+          ? [
+              project(from, 0.018, z),
+              project(from + geometry.cellSize, 0.018, z),
+              project(from + geometry.cellSize, 0.018, z + geometry.cellSize),
+              project(from, 0.018, z + geometry.cellSize),
+            ]
+          : [
+              project(0.018, from, z),
+              project(0.018, from + geometry.cellSize, z),
+              project(0.018, from + geometry.cellSize, z + geometry.cellSize),
+              project(0.018, from, z + geometry.cellSize),
+            ];
+        addMeshFace(
+          context,
+          edges,
+          "wall",
+          [
+            [cell.localX, 0, cell.localZ],
+            [cell.localX + 1, 0, cell.localZ],
+            [cell.localX + 1, 0, cell.localZ + 1],
+            [cell.localX, 0, cell.localZ + 1],
+          ],
+          points,
+          mixColor(color, "#FFFFFF", 0.1),
+        );
+      });
+    strokeMeshOutline(context, edges, withAlpha(palette.ink, 0.68));
+    return;
+  }
+
+  if (selected) {
+    polygon(
+      context,
+      [
+        project(object.x, object.y, 0.018),
+        project(object.x + geometry.width, object.y, 0.018),
+        project(object.x + geometry.width, object.y + geometry.depth, 0.018),
+        project(object.x, object.y + geometry.depth, 0.018),
+      ],
+      withAlpha(palette.leaf, 0.08),
+      palette.leaf,
+      2.2,
+    );
+  }
+
+  const occupied = new Set(
+    geometry.cells.map((cell) => `${cell.localX}:${cell.localY}:${cell.localZ}`),
+  );
+  const edges = new Map<string, MeshEdge>();
+  const floorHeight = 0.035;
+
+  geometry.cells
+    .sort(
+      (first, second) =>
+        first.localX + first.localY + first.localZ -
+          (second.localX + second.localY + second.localZ) ||
+        first.localZ - second.localZ ||
+        first.localY - second.localY ||
+        first.localX - second.localX,
+    )
+    .forEach((cell) => {
+      const color = cell.color ?? FURNITURE_MATERIALS[cell.material].color;
+      const x = object.x + cell.localX * geometry.cellSize;
+      const y = object.y + cell.localY * geometry.cellSize;
+      const z = object.definition.placement === "floor"
+        ? 0.024
+        : baseZ + cell.localZ * geometry.cellSize;
+      const height = object.definition.placement === "floor"
+        ? floorHeight
+        : geometry.cellSize;
+      const nextX = x + geometry.cellSize;
+      const nextY = y + geometry.cellSize;
+      const nextZ = z + height;
+      const meshX = cell.localX;
+      const meshY = cell.localY;
+      const meshZ = cell.localZ;
+      const hasFrontNeighbor = occupied.has(`${meshX}:${meshY + 1}:${meshZ}`);
+      const hasSideNeighbor = occupied.has(`${meshX + 1}:${meshY}:${meshZ}`);
+      const hasTopNeighbor = object.definition.placement !== "floor" &&
+        occupied.has(`${meshX}:${meshY}:${meshZ + 1}`);
+      const hasBackNeighbor = occupied.has(`${meshX}:${meshY - 1}:${meshZ}`);
+      const hasLeftNeighbor = occupied.has(`${meshX - 1}:${meshY}:${meshZ}`);
+      const hasBottomNeighbor = object.definition.placement !== "floor" &&
+        occupied.has(`${meshX}:${meshY}:${meshZ - 1}`);
+      const hasOverhangingTopNeighbor = hasTopNeighbor && [
+        `${meshX + 1}:${meshY}:${meshZ + 1}`,
+        `${meshX - 1}:${meshY}:${meshZ + 1}`,
+        `${meshX}:${meshY + 1}:${meshZ + 1}`,
+        `${meshX}:${meshY - 1}:${meshZ + 1}`,
+      ].some((key) => occupied.has(key));
+
+      if (!hasFrontNeighbor) {
+        addMeshFace(
+          context,
+          edges,
+          "front",
+          [
+            [meshX, meshY + 1, meshZ],
+            [meshX + 1, meshY + 1, meshZ],
+            [meshX + 1, meshY + 1, meshZ + 1],
+            [meshX, meshY + 1, meshZ + 1],
+          ],
+          [
+            project(x, nextY, z),
+            project(nextX, nextY, z),
+            project(nextX, nextY, nextZ),
+            project(x, nextY, nextZ),
+          ],
+          mixColor(color, palette.ink, 0.08),
+          [
+            !hasBottomNeighbor,
+            !hasSideNeighbor && !hasOverhangingTopNeighbor,
+            !hasTopNeighbor,
+            !hasLeftNeighbor && !hasOverhangingTopNeighbor,
+          ],
+        );
+      }
+      if (!hasSideNeighbor) {
+        addMeshFace(
+          context,
+          edges,
+          "side",
+          [
+            [meshX + 1, meshY, meshZ],
+            [meshX + 1, meshY + 1, meshZ],
+            [meshX + 1, meshY + 1, meshZ + 1],
+            [meshX + 1, meshY, meshZ + 1],
+          ],
+          [
+            project(nextX, y, z),
+            project(nextX, nextY, z),
+            project(nextX, nextY, nextZ),
+            project(nextX, y, nextZ),
+          ],
+          mixColor(color, palette.ink, 0.18),
+          [
+            !hasBottomNeighbor,
+            !hasFrontNeighbor && !hasOverhangingTopNeighbor,
+            !hasTopNeighbor,
+            !hasBackNeighbor && !hasOverhangingTopNeighbor,
+          ],
+        );
+      }
+      if (!hasTopNeighbor) {
+        addMeshFace(
+          context,
+          edges,
+          "top",
+          [
+            [meshX, meshY, meshZ + 1],
+            [meshX + 1, meshY, meshZ + 1],
+            [meshX + 1, meshY + 1, meshZ + 1],
+            [meshX, meshY + 1, meshZ + 1],
+          ],
+          [
+            project(x, y, nextZ),
+            project(nextX, y, nextZ),
+            project(nextX, nextY, nextZ),
+            project(x, nextY, nextZ),
+          ],
+          mixColor(color, "#FFFFFF", 0.16),
+          [
+            !hasBackNeighbor,
+            !hasSideNeighbor,
+            !hasFrontNeighbor,
+            !hasLeftNeighbor,
+          ],
+        );
+      }
+    });
+
+  strokeMeshOutline(context, edges, withAlpha(palette.ink, 0.68));
+}
+
 function drawObject(
   context: CanvasRenderingContext2D,
   project: Projector,
   palette: RoomPalette,
   object: RoomObject,
   seed: string,
+  selectedObjectId?: string,
 ): void {
   const random = seededRandom(seed + ":" + object.id);
 
@@ -851,6 +1165,15 @@ function drawObject(
     case "shelf":
       drawShelf(context, project, palette, object, random);
       break;
+    case "furniture":
+      drawPlacedFurniture(
+        context,
+        project,
+        palette,
+        object,
+        object.id === selectedObjectId,
+      );
+      break;
     default:
       break;
   }
@@ -873,9 +1196,34 @@ function drawPaperGrain(
   context.restore();
 }
 
+export interface RoomRenderState {
+  selectedObjectId?: string;
+}
+
+function makeRoomLayout(bounds: DOMRect): {
+  unit: number;
+  origin: Point;
+  project: Projector;
+} {
+  const unit = Math.min(bounds.width / 17.1, bounds.height / 13.6);
+  const origin = {
+    x: bounds.width * 0.52,
+    y: bounds.height * 0.395,
+  };
+  return {
+    unit,
+    origin,
+    project: (x, y, z = 0) => ({
+      x: origin.x + (x - y) * unit,
+      y: origin.y + (x + y) * unit * 0.5 - z * unit,
+    }),
+  };
+}
+
 export function drawRoom(
   canvas: HTMLCanvasElement,
   room: RoomDocument,
+  state: RoomRenderState = {},
 ): void {
   const bounds = canvas.getBoundingClientRect();
   const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
@@ -889,15 +1237,7 @@ export function drawRoom(
   context.clearRect(0, 0, bounds.width, bounds.height);
 
   const palette = PALETTES[room.palette];
-  const unit = Math.min(bounds.width / 17.1, bounds.height / 13.6);
-  const origin = {
-    x: bounds.width * 0.52,
-    y: bounds.height * 0.395,
-  };
-  const project: Projector = (x, y, z = 0) => ({
-    x: origin.x + (x - y) * unit,
-    y: origin.y + (x + y) * unit * 0.5 - z * unit,
-  });
+  const { project } = makeRoomLayout(bounds);
 
   const backdrop = context.createLinearGradient(0, 0, 0, bounds.height);
   backdrop.addColorStop(0, mixColor(palette.wall, "#FFFFFF", 0.28));
@@ -918,6 +1258,21 @@ export function drawRoom(
     .forEach((object) => drawFrame(context, project, palette, object));
 
   room.objects
+    .filter(
+      (object): object is PlacedFurnitureObject =>
+        object.type === "furniture" && object.definition.placement === "wall",
+    )
+    .forEach((object) =>
+      drawPlacedFurniture(
+        context,
+        project,
+        palette,
+        object,
+        object.id === state.selectedObjectId,
+      ),
+    );
+
+  room.objects
     .filter((object) => object.type === "rug")
     .forEach((object) =>
       drawRug(
@@ -929,14 +1284,65 @@ export function drawRoom(
       ),
     );
 
+  room.objects
+    .filter(
+      (object): object is PlacedFurnitureObject =>
+        object.type === "furniture" && object.definition.placement === "floor",
+    )
+    .forEach((object) =>
+      drawPlacedFurniture(
+        context,
+        project,
+        palette,
+        object,
+        object.id === state.selectedObjectId,
+      ),
+    );
+
   sortByProjectedDepth(
     room.objects.filter(
       (object) =>
         object.type !== "window" &&
         object.type !== "frame" &&
-        object.type !== "rug",
+        object.type !== "rug" &&
+        !(object.type === "furniture" && object.definition.placement !== "volume"),
     ),
   ).forEach((object) =>
-    drawObject(context, project, palette, object, room.seed),
+    drawObject(context, project, palette, object, room.seed, state.selectedObjectId),
   );
+}
+
+export function clientPointToRoomFloor(
+  canvas: HTMLCanvasElement,
+  clientX: number,
+  clientY: number,
+): { x: number; y: number } {
+  const bounds = canvas.getBoundingClientRect();
+  const { unit, origin } = makeRoomLayout(bounds);
+  const screenX = clientX - bounds.left - origin.x;
+  const screenY = clientY - bounds.top - origin.y;
+  const difference = screenX / unit;
+  const sum = screenY / (unit * 0.5);
+  return {
+    x: (sum + difference) / 2,
+    y: (sum - difference) / 2,
+  };
+}
+
+export function clientPointToRoomWall(
+  canvas: HTMLCanvasElement,
+  clientX: number,
+  clientY: number,
+  wall: "back" | "left",
+): { x: number; y: number; z: number } {
+  const bounds = canvas.getBoundingClientRect();
+  const { unit, origin } = makeRoomLayout(bounds);
+  const localX = clientX - bounds.left;
+  const localY = clientY - bounds.top;
+  if (wall === "back") {
+    const x = (localX - origin.x) / unit;
+    return { x, y: 0, z: (origin.y + x * unit * 0.5 - localY) / unit };
+  }
+  const y = (origin.x - localX) / unit;
+  return { x: 0, y, z: (origin.y + y * unit * 0.5 - localY) / unit };
 }

@@ -21,6 +21,7 @@
 - [아키텍처와 신뢰 경계](docs/ARCHITECTURE.md)
 - [방 데이터와 시트 초안](docs/DATA-MODEL.md)
 - [오픈소스 조사 메모](docs/RESEARCH-NOTES.md)
+- [AI 작업 투명성](docs/AI-ASSISTANCE.md)
 
 ## 현재 범위
 
@@ -29,3 +30,9 @@ Canvas2D 아이소메트릭 표본, 결정론적 시드, 팔레트 변주, 임�
 ## 라이선스
 
 코드는 [MIT License](LICENSE)로 배포한다. 향후 스타일 팩과 사용자 에셋은 각각의 출처와 라이선스를 별도로 표시한다.
+
+## 제작 투명성
+
+이 프로젝트는 **OpenAI Codex**와 **Anthropic Claude Code**의 도움을 받아 기획·작성되었다. 도구의 제안은 유지관리자가 검토·선택하며, 프로젝트에 대한 최종 책임은 유지관리자에게 있다.
+
+> Development disclosure: This project has been planned and written with assistance from OpenAI Codex and Anthropic Claude Code. The maintainer reviews and selects suggestions and remains responsible for the project.

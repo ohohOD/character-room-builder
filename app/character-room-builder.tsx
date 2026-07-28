@@ -124,6 +124,14 @@ export function CharacterRoomBuilder() {
           </section>
         </aside>
       </div>
+
+      <footer className="trust-footer" aria-label="제작 투명성">
+        <p>
+          <strong>제작 투명성</strong> · 이 프로젝트는 OpenAI Codex와 Anthropic
+          Claude Code의 도움을 받아 기획·작성되었습니다. 제안의 채택과 최종
+          책임은 유지관리자에게 있습니다.
+        </p>
+      </footer>
     </main>
   );
 }

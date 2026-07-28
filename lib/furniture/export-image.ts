@@ -65,6 +65,10 @@ function applyVisiblePixelBoundaries(canvas: HTMLCanvasElement): void {
     [1, 0],
     [0, -1],
     [0, 1],
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
   ] as const;
 
   for (let y = 0; y < height; y += 1) {
@@ -80,19 +84,24 @@ function applyVisiblePixelBoundaries(canvas: HTMLCanvasElement): void {
         }
         const neighborIndex = (neighborY * width + neighborX) * 4;
         if (source[neighborIndex + 3] < 48) return true;
-        if (source[neighborIndex + 3] < 160) return false;
+        if (
+          Math.abs(source[index + 3] - source[neighborIndex + 3]) > 96
+        ) {
+          return true;
+        }
+        if (source[neighborIndex + 3] < 96) return false;
         const difference =
           Math.abs(source[index] - source[neighborIndex]) +
           Math.abs(source[index + 1] - source[neighborIndex + 1]) +
           Math.abs(source[index + 2] - source[neighborIndex + 2]);
-        return difference > 42;
+        return difference > 30;
       });
 
       if (boundary) {
         output[index] = ink[0];
         output[index + 1] = ink[1];
         output[index + 2] = ink[2];
-        output[index + 3] = Math.max(output[index + 3], 190);
+        output[index + 3] = Math.max(output[index + 3], 220);
       }
     }
   }

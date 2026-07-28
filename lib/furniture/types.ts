@@ -12,7 +12,9 @@ export type FurnitureLicense =
   | "CC0-1.0";
 
 export type FurniturePlacement = "volume" | "floor" | "wall";
-export type FurnitureResolution = 1 | 2;
+export type FurnitureResolution = 1 | 2 | 4;
+
+export const MAX_FURNITURE_VOXELS = 9_600;
 
 export interface FurnitureVoxel {
   x: number;

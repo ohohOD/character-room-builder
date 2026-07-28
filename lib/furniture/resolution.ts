@@ -32,16 +32,18 @@ function chooseVoxelStyle(voxels: FurnitureVoxel[]): FurnitureVoxel {
 function expandVoxel(
   voxel: FurnitureVoxel,
   placement: FurnitureDefinition["placement"],
+  factor: number,
 ): FurnitureVoxel[] {
-  const xOffsets = [0, 1];
-  const yOffsets = placement === "wall" ? [0] : [0, 1];
-  const zOffsets = placement === "floor" ? [0] : [0, 1];
+  const offsets = Array.from({ length: factor }, (_, index) => index);
+  const xOffsets = offsets;
+  const yOffsets = placement === "wall" ? [0] : offsets;
+  const zOffsets = placement === "floor" ? [0] : offsets;
   return xOffsets.flatMap((xOffset) =>
     yOffsets.flatMap((yOffset) =>
       zOffsets.map((zOffset) => ({
-        x: voxel.x * 2 + xOffset,
-        y: placement === "wall" ? 0 : voxel.y * 2 + yOffset,
-        z: placement === "floor" ? 0 : voxel.z * 2 + zOffset,
+        x: voxel.x * factor + xOffset,
+        y: placement === "wall" ? 0 : voxel.y * factor + yOffset,
+        z: placement === "floor" ? 0 : voxel.z * factor + zOffset,
         material: voxel.material,
         ...(voxel.color ? { color: voxel.color } : {}),
       })),
@@ -52,12 +54,13 @@ function expandVoxel(
 function collapseVoxels(
   voxels: FurnitureVoxel[],
   placement: FurnitureDefinition["placement"],
+  factor: number,
 ): FurnitureVoxel[] {
   const groups = new Map<string, FurnitureVoxel[]>();
   voxels.forEach((voxel) => {
-    const x = Math.floor(voxel.x / 2);
-    const y = placement === "wall" ? 0 : Math.floor(voxel.y / 2);
-    const z = placement === "floor" ? 0 : Math.floor(voxel.z / 2);
+    const x = Math.floor(voxel.x / factor);
+    const y = placement === "wall" ? 0 : Math.floor(voxel.y / factor);
+    const z = placement === "floor" ? 0 : Math.floor(voxel.z / factor);
     const key = `${x}:${y}:${z}`;
     groups.set(key, [...(groups.get(key) ?? []), voxel]);
   });
@@ -88,9 +91,12 @@ export function convertFurnitureResolution(
   }
 
   const expanding = resolution > furniture.resolution;
+  const factor = expanding
+    ? resolution / furniture.resolution
+    : furniture.resolution / resolution;
   const scaleGrid = (value: number, active: boolean): number => {
     if (!active) return value;
-    return expanding ? value * 2 : Math.ceil(value / 2);
+    return expanding ? value * factor : Math.ceil(value / factor);
   };
 
   return {
@@ -102,7 +108,9 @@ export function convertFurnitureResolution(
       height: scaleGrid(furniture.grid.height, furniture.placement !== "floor"),
     },
     voxels: expanding
-      ? furniture.voxels.flatMap((voxel) => expandVoxel(voxel, furniture.placement))
-      : collapseVoxels(furniture.voxels, furniture.placement),
+      ? furniture.voxels.flatMap((voxel) =>
+          expandVoxel(voxel, furniture.placement, factor)
+        )
+      : collapseVoxels(furniture.voxels, furniture.placement, factor),
   };
 }

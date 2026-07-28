@@ -129,6 +129,41 @@ test("정밀 2× 조립은 외형 크기를 유지하고 기존 셀을 세분화
   assert.equal(decodeFurniture(encodeFurniture(fine)).resolution, 2);
 });
 
+test("초정밀 4× 조립은 sparse 가로 구간으로 공유하고 결정론적으로 복원한다", () => {
+  const standard = makeFurniture();
+  const ultra = convertFurnitureResolution(standard, 4);
+  const code = encodeFurniture(ultra);
+  const payload = JSON.parse(
+    Buffer.from(code.split(".")[1], "base64url").toString("utf8"),
+  ) as Record<string, unknown>;
+
+  assert.equal(ultra.resolution, 4);
+  assert.deepEqual(ultra.grid, { width: 16, depth: 16, height: 8 });
+  assert.equal(ultra.voxels.length, standard.voxels.length * 64);
+  assert.ok(Array.isArray(payload.runs));
+  assert.equal(payload.voxels, undefined);
+  assert.equal(decodeFurniture(code).voxels.length, ultra.voxels.length);
+  assert.equal(encodeFurniture(decodeFurniture(code)), code);
+  assert.equal(
+    encodeFurniture(convertFurnitureResolution(ultra, 1)),
+    encodeFurniture(standard),
+  );
+
+  assert.throws(
+    () => decodeFurniture(mutateCode(code, (value) => {
+      const runs = value.runs as unknown[][];
+      runs[0][3] = 999;
+    })),
+    /구간 길이/,
+  );
+  assert.throws(
+    () => decodeFurniture(mutateCode(code, (value) => {
+      value.voxels = [];
+    })),
+    /하나만/,
+  );
+});
+
 test("바닥과 벽의 정밀 2× 조립은 각 조립면의 두 축을 모두 세분화한다", () => {
   const floor: FurnitureDefinition = {
     ...makeFurniture(),

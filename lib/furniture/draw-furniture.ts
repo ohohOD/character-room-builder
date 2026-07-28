@@ -88,7 +88,7 @@ function makeLayout(
       (height - 150) /
       (furniture.grid.height * 0.5 + furniture.grid.width * 0.25);
     const tileWidth =
-      Math.max(28, Math.min(56, horizontalFit, verticalFit)) * viewport.zoom;
+      Math.max(8, Math.min(56, horizontalFit, verticalFit)) * viewport.zoom;
     const tileHeight = tileWidth * 0.5;
     return {
       width,
@@ -104,7 +104,7 @@ function makeLayout(
 
   const gridSpan = furniture.grid.width + furniture.grid.depth;
   const tileWidth =
-    Math.max(28, Math.min(52, ((width - 72) * 2) / gridSpan)) * viewport.zoom;
+    Math.max(8, Math.min(52, ((width - 72) * 2) / gridSpan)) * viewport.zoom;
   const tileHeight = tileWidth * 0.5;
   return {
     width,
@@ -314,7 +314,7 @@ function makeOrthographicLayout(
   const countA = view === "side" ? furniture.grid.depth : furniture.grid.width;
   const countB = view === "top" ? furniture.grid.depth : furniture.grid.height;
   const fitted = Math.min((width - 112) / countA, (height - 136) / countB, 48);
-  const cellSize = Math.max(12, fitted) * viewport.zoom;
+  const cellSize = Math.max(6, fitted) * viewport.zoom;
   return {
     originX: (width - countA * cellSize) * 0.5 + viewport.panX,
     originY: (height - countB * cellSize) * 0.5 + viewport.panY,

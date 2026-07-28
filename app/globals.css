@@ -682,7 +682,7 @@ canvas:focus-visible {
 
 .resolution-switch {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   border: 1px solid var(--line-strong);
   border-radius: 4px;
 }

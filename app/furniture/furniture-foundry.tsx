@@ -63,6 +63,7 @@ import type {
   FurniturePlacement,
   FurnitureResolution,
 } from "../../lib/furniture/types";
+import { MAX_FURNITURE_VOXELS } from "../../lib/furniture/types";
 
 type Tool = "paint" | "erase" | "fill" | "eyedropper" | "select" | "pan";
 
@@ -383,6 +384,10 @@ export function FurnitureFoundry() {
     message?: string,
   ): boolean {
     const current = furnitureRef.current;
+    if (next.voxels.length > MAX_FURNITURE_VOXELS) {
+      flash(`조립 칸은 최대 ${MAX_FURNITURE_VOXELS.toLocaleString("ko-KR")}개까지 만들 수 있어요.`);
+      return false;
+    }
     if (JSON.stringify(current) === JSON.stringify(next)) return false;
     pushUndoSnapshot(current);
     setFurnitureDocument(next);
@@ -488,6 +493,10 @@ export function FurnitureFoundry() {
         };
       }
     } else if (action === "paint") {
+      if (matchingIndex < 0 && current.voxels.length >= MAX_FURNITURE_VOXELS) {
+        flash(`조립 칸은 최대 ${MAX_FURNITURE_VOXELS.toLocaleString("ko-KR")}개까지 만들 수 있어요.`);
+        return;
+      }
       if (
         matchingIndex < 0 ||
         current.voxels[matchingIndex].material !== selectedMaterial ||
@@ -727,20 +736,29 @@ export function FurnitureFoundry() {
     if (furniture.resolution === resolution) return;
     const previousResolution = furniture.resolution;
     const next = convertFurnitureResolution(furniture, resolution);
+    if (next.voxels.length > MAX_FURNITURE_VOXELS) {
+      flash(
+        `이 모양을 ${resolution}×로 세분화하면 ${next.voxels.length.toLocaleString("ko-KR")}칸이 되어 최대 ${MAX_FURNITURE_VOXELS.toLocaleString("ko-KR")}칸을 넘어요. 빈 공간을 조금 만든 뒤 다시 시도해주세요.`,
+      );
+      return;
+    }
     commitFurniture(next);
     setActiveLayer((layer) => {
       if (next.placement !== "volume") return 0;
+      const factor = resolution > previousResolution
+        ? resolution / previousResolution
+        : previousResolution / resolution;
       const converted = resolution > previousResolution
-        ? layer * 2 + 1
-        : Math.floor(layer / 2);
+        ? layer * factor + factor - 1
+        : Math.floor(layer / factor);
       return Math.min(sliceLimitForView(next, editView) - 1, converted);
     });
     setHover(null);
     setSelection(null);
     flash(
-      resolution === 2
-        ? "정밀 조립으로 바꿨어요. 기존 모양은 유지되고 셀이 더 촘촘해졌어요."
-        : "기본 조립으로 바꿨어요. 작은 셀은 대표 재료로 합쳐졌어요.",
+      resolution === 1
+        ? "기본 조립으로 바꿨어요. 작은 셀은 대표 재료로 합쳐졌어요."
+        : `${resolution}× 정밀 조립으로 바꿨어요. 외형 크기는 유지되고 셀이 더 촘촘해졌어요.`,
     );
   }
 
@@ -1376,7 +1394,7 @@ export function FurnitureFoundry() {
             <p className="section-kicker">ASSEMBLY DETAIL</p>
             <h2>조립 해상도</h2>
             <div className="resolution-switch" aria-label="조립 해상도">
-              {([1, 2] as FurnitureResolution[]).map((resolution) => (
+              {([1, 2, 4] as FurnitureResolution[]).map((resolution) => (
                 <button
                   type="button"
                   key={resolution}
@@ -1384,14 +1402,16 @@ export function FurnitureFoundry() {
                   data-active={furniture.resolution === resolution}
                   onClick={() => changeResolution(resolution)}
                 >
-                  <strong>{resolution === 1 ? "기본" : "정밀"}</strong>
+                  <strong>
+                    {resolution === 1 ? "기본" : resolution === 2 ? "정밀" : "초정밀"}
+                  </strong>
                   <span>{resolution}× CELLS</span>
                 </button>
               ))}
             </div>
             <p className="control-note">
-              정밀 2×는 같은 가구 크기 안에서 셀을 축마다 두 배로 나눠 더 부드러운
-              계단형 실루엣을 만들어요.
+              2×·4×는 같은 가구 크기 안에서 셀을 더 잘게 나눕니다. 4× 코드는
+              빈 칸을 저장하지 않고 같은 재료의 가로 구간을 묶어요.
             </p>
           </section>
 

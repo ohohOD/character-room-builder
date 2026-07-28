@@ -6,12 +6,12 @@ import type {
   FurnitureResolution,
   FurnitureVoxel,
 } from "./types";
+import { MAX_FURNITURE_VOXELS } from "./types.ts";
 import { normalizeFurnitureColor } from "./colors.ts";
 
 const PREFIX = "FURN1";
 const MAX_CODE_LENGTH = 180_000;
 const MAX_INPUT_LENGTH = MAX_CODE_LENGTH + 4_096;
-const MAX_VOXELS = 9_600;
 const PLACEMENTS = new Set<FurniturePlacement>(["volume", "floor", "wall"]);
 const MATERIALS = new Set<FurnitureMaterialId>([
   "wood",
@@ -84,12 +84,51 @@ function compareText(first: string, second: string): number {
   return 0;
 }
 
+function expandVoxelRuns(
+  value: unknown,
+  width: number,
+  depth: number,
+  height: number,
+): unknown[] {
+  if (!Array.isArray(value) || value.length > MAX_FURNITURE_VOXELS) {
+    throw new Error("가구 코드의 조립 구간이 올바르지 않아요.");
+  }
+  const voxels: unknown[] = [];
+  value.forEach((candidate) => {
+    if (!Array.isArray(candidate) || candidate.length < 5 || candidate.length > 6) {
+      throw new Error("가구 코드의 조립 구간이 올바르지 않아요.");
+    }
+    const x = readBoundedInteger(candidate[0], 0, width - 1, "구간 x");
+    const y = readBoundedInteger(candidate[1], 0, depth - 1, "구간 y");
+    const z = readBoundedInteger(candidate[2], 0, height - 1, "구간 z");
+    const length = readBoundedInteger(candidate[3], 1, width - x, "구간 길이");
+    if (voxels.length + length > Math.min(width * depth * height, MAX_FURNITURE_VOXELS)) {
+      throw new Error("가구 코드에 조립 칸이 너무 많아요.");
+    }
+    for (let offset = 0; offset < length; offset += 1) {
+      voxels.push({
+        x: x + offset,
+        y,
+        z,
+        material: candidate[4],
+        ...(candidate.length === 6 ? { color: candidate[5] } : {}),
+      });
+    }
+  });
+  return voxels;
+}
+
 export function normalizeFurniture(value: unknown): FurnitureDefinition {
   if (!isRecord(value) || value.schemaVersion !== 1 || value.rendererVersion !== 1) {
     throw new Error("지원하지 않는 가구 데이터 버전이에요.");
   }
-  if (!isRecord(value.grid) || !Array.isArray(value.voxels) || !isRecord(value.provenance)) {
+  if (!isRecord(value.grid) || !isRecord(value.provenance)) {
     throw new Error("가구 데이터의 필수 항목이 빠졌어요.");
+  }
+  const hasVoxels = Array.isArray(value.voxels);
+  const hasRuns = Array.isArray(value.runs);
+  if (hasVoxels === hasRuns) {
+    throw new Error("가구 데이터에는 복셀이나 조립 구간 하나만 있어야 해요.");
   }
   if (typeof value.name !== "string") {
     throw new Error("가구 이름은 문자열이어야 해요.");
@@ -101,7 +140,7 @@ export function normalizeFurniture(value: unknown): FurnitureDefinition {
   }
 
   const resolution = value.resolution ?? 1;
-  if (resolution !== 1 && resolution !== 2) {
+  if (resolution !== 1 && resolution !== 2 && resolution !== 4) {
     throw new Error("지원하지 않는 가구 조립 해상도예요.");
   }
 
@@ -118,12 +157,18 @@ export function normalizeFurniture(value: unknown): FurnitureDefinition {
     placement === "floor" ? 1 : 12 * resolution,
     "높이 크기",
   );
-  if (value.voxels.length > Math.min(width * depth * height, MAX_VOXELS)) {
+  const voxelCandidates = hasVoxels
+    ? value.voxels as unknown[]
+    : expandVoxelRuns(value.runs, width, depth, height);
+  if (
+    voxelCandidates.length >
+      Math.min(width * depth * height, MAX_FURNITURE_VOXELS)
+  ) {
     throw new Error("가구 코드에 조립 칸이 너무 많아요.");
   }
 
   const voxelMap = new Map<string, FurnitureVoxel>();
-  value.voxels.forEach((candidate) => {
+  voxelCandidates.forEach((candidate) => {
     if (!isRecord(candidate) || !MATERIALS.has(candidate.material as FurnitureMaterialId)) {
       throw new Error("알 수 없는 재료가 포함되어 있어요.");
     }
@@ -184,6 +229,42 @@ export function normalizeFurniture(value: unknown): FurnitureDefinition {
   };
 }
 
+type FurnitureVoxelRun = [
+  x: number,
+  y: number,
+  z: number,
+  length: number,
+  material: FurnitureMaterialId,
+  color?: string,
+];
+
+function serializeVoxelRuns(voxels: FurnitureVoxel[]): FurnitureVoxelRun[] {
+  const runs: FurnitureVoxelRun[] = [];
+  voxels.forEach((voxel) => {
+    const previous = runs.at(-1);
+    if (
+      previous &&
+      previous[1] === voxel.y &&
+      previous[2] === voxel.z &&
+      previous[0] + previous[3] === voxel.x &&
+      previous[4] === voxel.material &&
+      previous[5] === voxel.color
+    ) {
+      previous[3] += 1;
+      return;
+    }
+    runs.push([
+      voxel.x,
+      voxel.y,
+      voxel.z,
+      1,
+      voxel.material,
+      ...(voxel.color ? [voxel.color] : []),
+    ] as FurnitureVoxelRun);
+  });
+  return runs;
+}
+
 function serializeFurniture(furniture: FurnitureDefinition): object {
   return {
     schemaVersion: furniture.schemaVersion,
@@ -194,7 +275,9 @@ function serializeFurniture(furniture: FurnitureDefinition): object {
     ...(furniture.resolution === 1 ? {} : { resolution: furniture.resolution }),
     name: furniture.name,
     grid: furniture.grid,
-    voxels: furniture.voxels,
+    ...(furniture.resolution === 4
+      ? { runs: serializeVoxelRuns(furniture.voxels) }
+      : { voxels: furniture.voxels }),
     provenance: furniture.provenance,
   };
 }

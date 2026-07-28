@@ -9,6 +9,8 @@ import type {
 
 type Point = { x: number; y: number };
 
+export type FurnitureView = "isometric" | "front" | "side" | "top";
+
 export interface FurnitureViewport {
   zoom: number;
   panX: number;
@@ -25,6 +27,15 @@ interface Layout {
   cubeHeight: number;
 }
 
+interface OrthographicLayout {
+  originX: number;
+  originY: number;
+  cellSize: number;
+  countA: number;
+  countB: number;
+  verticalUp: boolean;
+}
+
 export interface FurnitureRenderState {
   activeLayer: number;
   selectedMaterial: FurnitureMaterialId;
@@ -33,6 +44,7 @@ export interface FurnitureRenderState {
   hover: FurnitureCell | null;
   selection?: FurnitureCell[];
   viewport?: FurnitureViewport;
+  view?: FurnitureView;
 }
 
 function parseHex(color: string): [number, number, number] {
@@ -292,6 +304,133 @@ function drawBackdrop(
   context.fillRect(0, 0, bounds.width, bounds.height);
 }
 
+function makeOrthographicLayout(
+  width: number,
+  height: number,
+  furniture: FurnitureDefinition,
+  view: Exclude<FurnitureView, "isometric">,
+  viewport: FurnitureViewport = { zoom: 1, panX: 0, panY: 0 },
+): OrthographicLayout {
+  const countA = view === "side" ? furniture.grid.depth : furniture.grid.width;
+  const countB = view === "top" ? furniture.grid.depth : furniture.grid.height;
+  const fitted = Math.min((width - 112) / countA, (height - 136) / countB, 48);
+  const cellSize = Math.max(12, fitted) * viewport.zoom;
+  return {
+    originX: (width - countA * cellSize) * 0.5 + viewport.panX,
+    originY: (height - countB * cellSize) * 0.5 + viewport.panY,
+    cellSize,
+    countA,
+    countB,
+    verticalUp: view !== "top",
+  };
+}
+
+function orthographicCell(
+  layout: OrthographicLayout,
+  a: number,
+  b: number,
+): { x: number; y: number; size: number } {
+  return {
+    x: layout.originX + a * layout.cellSize,
+    y: layout.originY +
+      (layout.verticalUp ? layout.countB - 1 - b : b) * layout.cellSize,
+    size: layout.cellSize,
+  };
+}
+
+function orthographicCoordinates(
+  view: Exclude<FurnitureView, "isometric">,
+  cell: FurnitureCell,
+): { a: number; b: number; slice: number } {
+  if (view === "front") return { a: cell.x, b: cell.z, slice: cell.y };
+  if (view === "side") return { a: cell.y, b: cell.z, slice: cell.x };
+  return { a: cell.x, b: cell.y, slice: cell.z };
+}
+
+function drawOrthographicFurniture(
+  context: CanvasRenderingContext2D,
+  bounds: DOMRect,
+  furniture: FurnitureDefinition,
+  state: FurnitureRenderState,
+  view: Exclude<FurnitureView, "isometric">,
+): void {
+  const layout = makeOrthographicLayout(
+    bounds.width,
+    bounds.height,
+    furniture,
+    view,
+    state.viewport,
+  );
+  const slice = state.activeLayer;
+  for (let b = 0; b < layout.countB; b += 1) {
+    for (let a = 0; a < layout.countA; a += 1) {
+      const rect = orthographicCell(layout, a, b);
+      context.fillStyle = (a + b) % 2 === 0 ? "#eee7dc" : "#e8dfd2";
+      context.fillRect(rect.x, rect.y, rect.size, rect.size);
+      context.strokeStyle = "rgba(85, 122, 79, 0.28)";
+      context.lineWidth = 0.8;
+      context.strokeRect(rect.x, rect.y, rect.size, rect.size);
+    }
+  }
+
+  furniture.voxels.forEach((voxel) => {
+    const coordinates = orthographicCoordinates(view, voxel);
+    if (coordinates.slice !== slice) return;
+    const rect = orthographicCell(layout, coordinates.a, coordinates.b);
+    context.fillStyle = mixColor(voxelColor(voxel), "#ffffff", 0.08);
+    context.fillRect(rect.x, rect.y, rect.size, rect.size);
+    context.strokeStyle = withAlpha("#302c27", 0.62);
+    context.lineWidth = 1;
+    context.strokeRect(rect.x, rect.y, rect.size, rect.size);
+  });
+
+  state.selection?.forEach((cell) => {
+    const coordinates = orthographicCoordinates(view, cell);
+    if (coordinates.slice !== slice) return;
+    const rect = orthographicCell(layout, coordinates.a, coordinates.b);
+    context.fillStyle = "rgba(85, 122, 79, 0.18)";
+    context.fillRect(rect.x, rect.y, rect.size, rect.size);
+    context.strokeStyle = "rgba(48, 44, 39, 0.78)";
+    context.lineWidth = 2;
+    context.strokeRect(rect.x + 1, rect.y + 1, rect.size - 2, rect.size - 2);
+  });
+
+  if (state.hover) {
+    const coordinates = orthographicCoordinates(view, state.hover);
+    if (coordinates.slice === slice) {
+      const rect = orthographicCell(layout, coordinates.a, coordinates.b);
+      const material = normalizeFurnitureColor(state.selectedColor) ??
+        FURNITURE_MATERIALS[state.selectedMaterial].color;
+      context.fillStyle = state.tool === "erase"
+        ? "rgba(195, 105, 92, 0.24)"
+        : withAlpha(material, 0.38);
+      context.fillRect(rect.x, rect.y, rect.size, rect.size);
+      context.strokeStyle = state.tool === "erase" ? "#9f4e45" : "#557a4f";
+      context.lineWidth = 2;
+      context.strokeRect(rect.x + 1, rect.y + 1, rect.size - 2, rect.size - 2);
+    }
+  }
+
+  context.fillStyle = "rgba(48, 44, 39, 0.58)";
+  context.font = '11px "Cascadia Code", Consolas, monospace';
+  context.textAlign = "left";
+  const axis = furniture.placement !== "volume"
+    ? "SURFACE"
+    : view === "front"
+      ? "DEPTH"
+      : view === "side"
+        ? "WIDTH"
+        : "LAYER";
+  const max = furniture.placement !== "volume"
+    ? 1
+    : view === "front"
+    ? furniture.grid.depth
+    : view === "side"
+      ? furniture.grid.width
+      : furniture.grid.height;
+  context.fillText(`${view.toUpperCase()} · ${axis} ${slice + 1}/${max}`, 18, 28);
+}
+
 export function drawFurniture(
   canvas: HTMLCanvasElement,
   furniture: FurnitureDefinition,
@@ -307,8 +446,23 @@ export function drawFurniture(
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   context.clearRect(0, 0, bounds.width, bounds.height);
 
-  const layout = makeLayout(bounds.width, bounds.height, furniture, state.viewport);
   drawBackdrop(context, bounds);
+
+  const view = state.view ?? "isometric";
+  if (view !== "isometric") {
+    drawOrthographicFurniture(context, bounds, furniture, state, view);
+    context.fillStyle = "rgba(48, 44, 39, 0.58)";
+    context.font = '11px "Cascadia Code", Consolas, monospace';
+    context.textAlign = "right";
+    context.fillText(
+      `${furniture.voxels.length} ${furniture.placement === "volume" ? "VOXELS" : "CELLS"}`,
+      bounds.width - 18,
+      bounds.height - 18,
+    );
+    return;
+  }
+
+  const layout = makeLayout(bounds.width, bounds.height, furniture, state.viewport);
 
   if (furniture.placement === "wall") {
     drawWallSurface(context, layout, furniture);
@@ -394,8 +548,27 @@ export function clientPointToFurnitureCell(
   clientY: number,
   activeLayer: number,
   viewport?: FurnitureViewport,
+  view: FurnitureView = "isometric",
 ): FurnitureCell | null {
   const bounds = canvas.getBoundingClientRect();
+  if (view !== "isometric") {
+    const layout = makeOrthographicLayout(
+      bounds.width,
+      bounds.height,
+      furniture,
+      view,
+      viewport,
+    );
+    const localX = clientX - bounds.left;
+    const localY = clientY - bounds.top;
+    const a = Math.floor((localX - layout.originX) / layout.cellSize);
+    const screenB = Math.floor((localY - layout.originY) / layout.cellSize);
+    const b = layout.verticalUp ? layout.countB - 1 - screenB : screenB;
+    if (a < 0 || b < 0 || a >= layout.countA || b >= layout.countB) return null;
+    if (view === "front") return { x: a, y: activeLayer, z: b };
+    if (view === "side") return { x: activeLayer, y: a, z: b };
+    return { x: a, y: b, z: activeLayer };
+  }
   const layout = makeLayout(bounds.width, bounds.height, furniture, viewport);
   const localX = clientX - bounds.left;
   const localY = clientY - bounds.top;

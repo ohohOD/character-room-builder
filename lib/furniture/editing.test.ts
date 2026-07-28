@@ -7,6 +7,7 @@ import {
   mirrorFurnitureSelection,
   moveFurnitureSelection,
   moveFurnitureSelectionLayer,
+  moveFurnitureSelectionSlice,
   resizeFurnitureGrid,
   rotateFurnitureSelection,
   type FurnitureSelection,
@@ -149,4 +150,69 @@ test("선택 영역 지우기는 다른 층을 보존한다", () => {
   assert.deepEqual(erased.voxels, [
     { x: 5, y: 5, z: 3, material: "metal" },
   ]);
+});
+
+test("입체 가구의 정면 단면은 x·z에서 편집하고 깊이면 사이를 이동한다", () => {
+  const frontSelection: FurnitureSelection = {
+    start: { x: 1, y: 1, z: 1 },
+    end: { x: 2, y: 1, z: 1 },
+  };
+  assert.deepEqual(
+    cellsInFurnitureSelection(makeFurniture(), frontSelection, "xz"),
+    [
+      { x: 1, y: 1, z: 1 },
+      { x: 2, y: 1, z: 1 },
+    ],
+  );
+
+  const raised = moveFurnitureSelection(
+    makeFurniture(),
+    frontSelection,
+    0,
+    1,
+    false,
+    "xz",
+  );
+  assert.deepEqual(raised.furniture.voxels.slice(0, 2), [
+    { x: 1, y: 1, z: 2, material: "sage", color: "#8da18d" },
+    { x: 2, y: 1, z: 2, material: "wood" },
+  ]);
+
+  const deeper = moveFurnitureSelectionSlice(
+    makeFurniture(),
+    frontSelection,
+    1,
+    "xz",
+  );
+  assert.equal(deeper.selection.start.y, 2);
+  assert.deepEqual(deeper.furniture.voxels.slice(0, 2), [
+    { x: 1, y: 2, z: 1, material: "sage", color: "#8da18d" },
+    { x: 2, y: 2, z: 1, material: "wood" },
+  ]);
+});
+
+test("측면 단면과 정면 채우기는 선택한 절단면 밖을 바꾸지 않는다", () => {
+  const sideCells = cellsInFurnitureSelection(
+    makeFurniture(),
+    {
+      start: { x: 1, y: 1, z: 0 },
+      end: { x: 1, y: 2, z: 2 },
+    },
+    "yz",
+  );
+  assert.equal(sideCells.length, 6);
+  assert.ok(sideCells.every((cell) => cell.x === 1));
+
+  const filled = floodFillFurniture(
+    makeFurniture(),
+    { x: 0, y: 0, z: 0 },
+    "rose",
+    "#c38f87",
+    "xz",
+  );
+  assert.equal(
+    filled.voxels.filter((voxel) => voxel.y === 0 && voxel.material === "rose").length,
+    24,
+  );
+  assert.equal(filled.voxels.filter((voxel) => voxel.y !== 0).length, 3);
 });

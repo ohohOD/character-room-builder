@@ -489,6 +489,7 @@ canvas:focus-visible {
 
 .foundry-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
   justify-content: space-between;
   gap: 12px;
@@ -499,6 +500,38 @@ canvas:focus-visible {
 
 .foundry-toolbar .tool-switch {
   flex: 1 1 auto;
+}
+
+.view-switch {
+  display: grid;
+  flex: 1 1 100%;
+  grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+
+.view-switch button {
+  min-height: 38px;
+  padding: 6px 10px;
+  border: 0;
+  color: var(--muted);
+  background: rgba(251, 250, 246, 0.5);
+  cursor: pointer;
+}
+
+.view-switch button + button {
+  border-left: 1px solid var(--line-strong);
+}
+
+.view-switch button[data-active="true"] {
+  color: #ffffff;
+  background: var(--sage);
+}
+
+.view-switch button:disabled {
+  color: var(--faint);
+  background: rgba(232, 224, 211, 0.34);
+  cursor: not-allowed;
 }
 
 .history-controls,
@@ -1234,6 +1267,7 @@ canvas:focus-visible {
   }
 
   .foundry-toolbar .tool-switch,
+  .view-switch,
   .viewport-controls {
     width: 100%;
   }

@@ -13,6 +13,7 @@ import {
 import {
   clientPointToFurnitureCell,
   drawFurniture,
+  type FurnitureView,
   type FurnitureViewport,
 } from "../../lib/furniture/draw-furniture";
 import {
@@ -24,8 +25,10 @@ import {
   mirrorFurnitureSelection,
   moveFurnitureSelection,
   moveFurnitureSelectionLayer,
+  moveFurnitureSelectionSlice,
   resizeFurnitureGrid,
   rotateFurnitureSelection,
+  type FurnitureEditPlane,
   type FurnitureSelection,
 } from "../../lib/furniture/editing";
 import {
@@ -77,6 +80,31 @@ const TOOL_LABELS: Array<{ id: Tool; label: string; shortcut: string }> = [
   { id: "select", label: "영역 선택", shortcut: "S" },
   { id: "pan", label: "화면 이동", shortcut: "H" },
 ];
+
+const VIEW_LABELS: Array<{ id: FurnitureView; label: string }> = [
+  { id: "isometric", label: "아이소메트릭" },
+  { id: "front", label: "정면" },
+  { id: "side", label: "측면" },
+  { id: "top", label: "평면" },
+];
+
+function editPlaneForView(
+  furniture: FurnitureDefinition,
+  view: FurnitureView,
+): FurnitureEditPlane {
+  if (view === "front" || furniture.placement === "wall") return "xz";
+  if (view === "side") return "yz";
+  return "xy";
+}
+
+function sliceLimitForView(
+  furniture: FurnitureDefinition,
+  view: FurnitureView,
+): number {
+  if (view === "front") return furniture.grid.depth;
+  if (view === "side") return furniture.grid.width;
+  return furniture.grid.height;
+}
 
 const LICENSE_LABELS: Record<FurnitureLicense, string> = {
   "all-rights-reserved": "권리 보유 · 재사용 전 허락 필요",
@@ -137,6 +165,7 @@ export function FurnitureFoundry() {
   );
   const furnitureRef = useRef(furniture);
   const [activeLayer, setActiveLayer] = useState(4);
+  const [editView, setEditView] = useState<FurnitureView>("isometric");
   const [selectedMaterial, setSelectedMaterial] =
     useState<FurnitureMaterialId>("sage");
   const [selectedColor, setSelectedColor] = useState(
@@ -165,9 +194,10 @@ export function FurnitureFoundry() {
   const [exportOutline, setExportOutline] = useState(true);
   const [exportShadow, setExportShadow] = useState(true);
   const [exportStatus, setExportStatus] = useState("");
+  const editPlane = editPlaneForView(furniture, editView);
   const selectedCells = useMemo(
-    () => cellsInFurnitureSelection(furniture, selection),
-    [furniture, selection],
+    () => cellsInFurnitureSelection(furniture, selection, editPlane),
+    [editPlane, furniture, selection],
   );
   const selectedVoxelCount = useMemo(() => {
     const keys = new Set(selectedCells.map(cellKey));
@@ -228,6 +258,7 @@ export function FurnitureFoundry() {
         setFurniture(decoded);
         setGridDraft({ ...decoded.grid });
         setActiveLayer(editableLayer(decoded));
+        setEditView("isometric");
         setHover(null);
         setSelection(null);
         setViewport({ zoom: 1, panX: 0, panY: 0 });
@@ -270,6 +301,7 @@ export function FurnitureFoundry() {
         hover,
         selection: selectedCells,
         viewport,
+        view: editView,
       });
     render();
 
@@ -278,6 +310,7 @@ export function FurnitureFoundry() {
     return () => observer.disconnect();
   }, [
     activeLayer,
+    editView,
     furniture,
     hover,
     selectedCells,
@@ -339,7 +372,7 @@ export function FurnitureFoundry() {
     setGridDraft({ ...next.grid });
     setActiveLayer((layer) =>
       next.placement === "volume"
-        ? Math.min(next.grid.height - 1, Math.max(0, layer))
+        ? Math.min(sliceLimitForView(next, editView) - 1, Math.max(0, layer))
         : 0,
     );
     setHover(null);
@@ -494,6 +527,7 @@ export function FurnitureFoundry() {
       event.clientY,
       activeLayer,
       viewport,
+      editView,
     );
   }
 
@@ -538,6 +572,7 @@ export function FurnitureFoundry() {
         cell,
         selectedMaterial,
         selectedColor,
+        editPlane,
       );
       if (commitFurniture(next, "연결된 영역을 채웠어요.")) {
         rememberColor(selectedColor);
@@ -655,13 +690,15 @@ export function FurnitureFoundry() {
     }
     if (furniture.placement === "volume" && event.key === "]") {
       event.preventDefault();
-      setActiveLayer((layer) => Math.min(furniture.grid.height - 1, layer + 1));
+      setActiveLayer((layer) =>
+        Math.min(sliceLimitForView(furniture, editView) - 1, layer + 1)
+      );
       setSelection(null);
     }
     if ((event.key === "Delete" || event.key === "Backspace") && selection) {
       event.preventDefault();
       commitFurniture(
-        eraseFurnitureSelection(furnitureRef.current, selection),
+        eraseFurnitureSelection(furnitureRef.current, selection, editPlane),
         "선택 영역의 복셀을 지웠어요.",
       );
       return;
@@ -678,6 +715,7 @@ export function FurnitureFoundry() {
     const next = create();
     commitFurniture(next);
     setActiveLayer(editableLayer(next));
+    setEditView("isometric");
     setTool("paint");
     setHover(null);
     setSelection(null);
@@ -692,9 +730,10 @@ export function FurnitureFoundry() {
     commitFurniture(next);
     setActiveLayer((layer) => {
       if (next.placement !== "volume") return 0;
-      return resolution > previousResolution
-        ? Math.min(next.grid.height - 1, layer * 2 + 1)
-        : Math.min(next.grid.height - 1, Math.floor(layer / 2));
+      const converted = resolution > previousResolution
+        ? layer * 2 + 1
+        : Math.floor(layer / 2);
+      return Math.min(sliceLimitForView(next, editView) - 1, converted);
     });
     setHover(null);
     setSelection(null);
@@ -720,6 +759,25 @@ export function FurnitureFoundry() {
     }
     setSelection(null);
     setViewport({ zoom: 1, panX: 0, panY: 0 });
+    setActiveLayer((layer) =>
+      Math.min(sliceLimitForView(next, editView) - 1, layer)
+    );
+  }
+
+  function chooseEditView(view: FurnitureView): void {
+    if (furniture.placement === "floor" && view !== "isometric" && view !== "top") {
+      return;
+    }
+    if (furniture.placement === "wall" && view !== "isometric" && view !== "front") {
+      return;
+    }
+    setEditView(view);
+    setActiveLayer((layer) => furniture.placement === "volume"
+      ? Math.min(sliceLimitForView(furniture, view) - 1, layer)
+      : 0);
+    setSelection(null);
+    setHover(null);
+    setViewport({ zoom: 1, panX: 0, panY: 0 });
   }
 
   function applySelectionTransform(
@@ -732,7 +790,13 @@ export function FurnitureFoundry() {
     }
     setSelection(result.selection);
     if (furnitureRef.current.placement === "volume") {
-      setActiveLayer(result.selection.start.z);
+      setActiveLayer(
+        editPlane === "xz"
+          ? result.selection.start.y
+          : editPlane === "yz"
+            ? result.selection.start.x
+            : result.selection.start.z,
+      );
     }
     if (!result.changed) {
       flash("선택 영역에 옮길 복셀이 없어요.");
@@ -749,6 +813,8 @@ export function FurnitureFoundry() {
         selection,
         deltaA,
         deltaB,
+        false,
+        editPlane,
       ),
       "선택 영역을 한 칸 옮겼어요.",
     );
@@ -757,7 +823,14 @@ export function FurnitureFoundry() {
   function duplicateSelection(): void {
     if (!selection) return;
     applySelectionTransform(
-      moveFurnitureSelection(furnitureRef.current, selection, 1, 0, true),
+      moveFurnitureSelection(
+        furnitureRef.current,
+        selection,
+        1,
+        0,
+        true,
+        editPlane,
+      ),
       "선택 영역을 오른쪽으로 한 칸 복제했어요.",
     );
   }
@@ -765,21 +838,28 @@ export function FurnitureFoundry() {
   function moveSelectionLayer(deltaZ: number): void {
     if (!selection) return;
     applySelectionTransform(
-      moveFurnitureSelectionLayer(
-        furnitureRef.current,
-        selection,
-        deltaZ,
-      ),
-      deltaZ > 0
-        ? "선택 영역을 한 층 올렸어요."
-        : "선택 영역을 한 층 내렸어요.",
+      editPlane === "xy"
+        ? moveFurnitureSelectionLayer(furnitureRef.current, selection, deltaZ)
+        : moveFurnitureSelectionSlice(
+            furnitureRef.current,
+            selection,
+            deltaZ,
+            editPlane,
+          ),
+      editPlane === "xy"
+        ? deltaZ > 0
+          ? "선택 영역을 한 층 올렸어요."
+          : "선택 영역을 한 층 내렸어요."
+        : deltaZ > 0
+          ? "선택 영역을 다음 단면으로 옮겼어요."
+          : "선택 영역을 이전 단면으로 옮겼어요.",
     );
   }
 
   function rotateSelection(): void {
     if (!selection) return;
     applySelectionTransform(
-      rotateFurnitureSelection(furnitureRef.current, selection),
+      rotateFurnitureSelection(furnitureRef.current, selection, editPlane),
       "선택 영역을 시계 방향으로 돌렸어요.",
     );
   }
@@ -787,10 +867,12 @@ export function FurnitureFoundry() {
   function mirrorSelection(axis: "a" | "b"): void {
     if (!selection) return;
     applySelectionTransform(
-      mirrorFurnitureSelection(furnitureRef.current, selection, axis),
+      mirrorFurnitureSelection(furnitureRef.current, selection, axis, editPlane),
       axis === "a"
         ? "선택 영역을 좌우로 반전했어요."
-        : "선택 영역을 앞뒤로 반전했어요.",
+        : editPlane === "xy"
+          ? "선택 영역을 앞뒤로 반전했어요."
+          : "선택 영역을 상하로 반전했어요.",
     );
   }
 
@@ -834,6 +916,7 @@ export function FurnitureFoundry() {
       const decoded = decodeFurniture(codeInput);
       commitFurniture(decoded);
       setActiveLayer(editableLayer(decoded));
+      setEditView("isometric");
       setHover(null);
       setSelection(null);
       setViewport({ zoom: 1, panX: 0, panY: 0 });
@@ -916,6 +999,13 @@ export function FurnitureFoundry() {
     (preset) => preset.placement === furniture.placement,
   );
   const gridLimits = furnitureGridLimits(furniture);
+  const activeViewLabel = VIEW_LABELS.find((item) => item.id === editView)?.label ?? "아이소메트릭";
+  const sliceLimit = sliceLimitForView(furniture, editView);
+  const sliceAxisName = editView === "front"
+    ? "깊이면"
+    : editView === "side"
+      ? "가로면"
+      : "층";
 
   return (
     <main className="shell foundry-shell">
@@ -976,6 +1066,27 @@ export function FurnitureFoundry() {
                 </button>
               ))}
             </div>
+            <div className="view-switch" aria-label="편집 시점">
+              {VIEW_LABELS.map((item) => {
+                const disabled = furniture.placement === "floor"
+                  ? item.id === "front" || item.id === "side"
+                  : furniture.placement === "wall"
+                    ? item.id === "side" || item.id === "top"
+                    : false;
+                return (
+                  <button
+                    type="button"
+                    key={item.id}
+                    disabled={disabled}
+                    data-active={editView === item.id}
+                    aria-pressed={editView === item.id}
+                    onClick={() => chooseEditView(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
             <div className="viewport-controls" aria-label="화면 확대와 위치">
               <button
                 type="button"
@@ -1015,8 +1126,10 @@ export function FurnitureFoundry() {
             role="application"
             tabIndex={0}
             aria-describedby="foundry-canvas-help"
-            aria-label={`${furniture.name} ${placementCopy.name} 편집판.${
-              furniture.placement === "volume" ? ` 현재 ${activeLayer + 1}층.` : ""
+            aria-label={`${furniture.name} ${placementCopy.name} ${activeViewLabel} 편집판.${
+              furniture.placement === "volume"
+                ? ` 현재 ${sliceAxisName} ${activeLayer + 1}.`
+                : ""
             }`}
             onContextMenu={(event) => event.preventDefault()}
             onPointerDown={handlePointerDown}
@@ -1086,27 +1199,31 @@ export function FurnitureFoundry() {
             <section>
               <div className="layer-heading">
                 <div>
-                  <p className="section-kicker">BUILD LAYER</p>
-                  <h2>{activeLayer + 1}층 편집</h2>
+                  <p className="section-kicker">EDIT SLICE</p>
+                  <h2>{activeLayer + 1}번째 {sliceAxisName} 편집</h2>
                 </div>
-                <output>{activeLayer + 1} / {furniture.grid.height}</output>
+                <output>{activeLayer + 1} / {sliceLimit}</output>
               </div>
               <label className="control-label" htmlFor="furniture-layer">
-                편집할 가구 층
+                편집할 {sliceAxisName}
               </label>
               <input
                 id="furniture-layer"
                 className="layer-range"
                 type="range"
                 min={0}
-                max={furniture.grid.height - 1}
+                max={sliceLimit - 1}
                 value={activeLayer}
                 onChange={(event) => {
                   setActiveLayer(Number(event.target.value));
                   setSelection(null);
                 }}
               />
-              <p className="control-note">현재 층 이하의 복셀만 보여요.</p>
+              <p className="control-note">
+                {editView === "isometric"
+                  ? "아이소메트릭에서는 현재 층 이하를 함께 보여요."
+                  : `${activeViewLabel}에서는 선택한 단면만 정확히 편집해요.`}
+              </p>
             </section>
           ) : (
             <section>
@@ -1205,18 +1322,18 @@ export function FurnitureFoundry() {
                     오른쪽
                   </button>
                   <button type="button" onClick={() => moveSelection(0, -1)}>
-                    {furniture.placement === "wall" ? "아래" : "뒤"}
+                    {editPlane === "xy" ? "뒤" : "아래"}
                   </button>
                   <button type="button" onClick={() => moveSelection(0, 1)}>
-                    {furniture.placement === "wall" ? "위" : "앞"}
+                    {editPlane === "xy" ? "앞" : "위"}
                   </button>
                   {furniture.placement === "volume" ? (
                     <>
                       <button type="button" onClick={() => moveSelectionLayer(-1)}>
-                        한 층 아래
+                        {editPlane === "xy" ? "한 층 아래" : "이전 단면"}
                       </button>
                       <button type="button" onClick={() => moveSelectionLayer(1)}>
-                        한 층 위
+                        {editPlane === "xy" ? "한 층 위" : "다음 단면"}
                       </button>
                     </>
                   ) : null}
@@ -1228,12 +1345,16 @@ export function FurnitureFoundry() {
                     좌우 반전
                   </button>
                   <button type="button" onClick={() => mirrorSelection("b")}>
-                    {furniture.placement === "wall" ? "상하 반전" : "앞뒤 반전"}
+                    {editPlane === "xy" ? "앞뒤 반전" : "상하 반전"}
                   </button>
                   <button
                     type="button"
                     onClick={() => commitFurniture(
-                      eraseFurnitureSelection(furnitureRef.current, selection),
+                      eraseFurnitureSelection(
+                        furnitureRef.current,
+                        selection,
+                        editPlane,
+                      ),
                       "선택 영역의 복셀을 지웠어요.",
                     )}
                   >

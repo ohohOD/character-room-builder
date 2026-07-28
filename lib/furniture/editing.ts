@@ -10,6 +10,8 @@ export interface FurnitureSelection {
   end: FurnitureCell;
 }
 
+export type FurnitureEditPlane = "xy" | "xz" | "yz";
+
 export interface FurnitureGridLimits {
   width: { min: number; max: number };
   depth: { min: number; max: number };
@@ -40,49 +42,59 @@ function sortedVoxels(voxels: FurnitureVoxel[]): FurnitureVoxel[] {
   return voxels.map((voxel) => ({ ...voxel })).sort(compareVoxels);
 }
 
+export function defaultFurnitureEditPlane(
+  furniture: FurnitureDefinition,
+): FurnitureEditPlane {
+  return furniture.placement === "wall" ? "xz" : "xy";
+}
+
 function toPlane(
   furniture: FurnitureDefinition,
   cell: FurnitureCell,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
 ): PlanePoint {
-  return furniture.placement === "wall"
-    ? { a: cell.x, b: cell.z }
-    : { a: cell.x, b: cell.y };
+  if (plane === "xz") return { a: cell.x, b: cell.z };
+  if (plane === "yz") return { a: cell.y, b: cell.z };
+  return { a: cell.x, b: cell.y };
 }
 
 function fromPlane(
   furniture: FurnitureDefinition,
   point: PlanePoint,
-  layer: number,
+  slice: number,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
 ): FurnitureCell {
-  if (furniture.placement === "wall") {
-    return { x: point.a, y: 0, z: point.b };
-  }
-  return {
-    x: point.a,
-    y: point.b,
-    z: furniture.placement === "floor" ? 0 : layer,
-  };
+  if (plane === "xz") return { x: point.a, y: slice, z: point.b };
+  if (plane === "yz") return { x: slice, y: point.a, z: point.b };
+  return { x: point.a, y: point.b, z: slice };
 }
 
-function planeLayer(
+function planeSlice(
   furniture: FurnitureDefinition,
   selection: FurnitureSelection,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
 ): number {
-  return furniture.placement === "volume" ? selection.start.z : 0;
+  if (plane === "xz") return selection.start.y;
+  if (plane === "yz") return selection.start.x;
+  return selection.start.z;
 }
 
-function planeSize(furniture: FurnitureDefinition): PlanePoint {
-  return furniture.placement === "wall"
-    ? { a: furniture.grid.width, b: furniture.grid.height }
-    : { a: furniture.grid.width, b: furniture.grid.depth };
+function planeSize(
+  furniture: FurnitureDefinition,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
+): PlanePoint {
+  if (plane === "xz") return { a: furniture.grid.width, b: furniture.grid.height };
+  if (plane === "yz") return { a: furniture.grid.depth, b: furniture.grid.height };
+  return { a: furniture.grid.width, b: furniture.grid.depth };
 }
 
 function selectionBounds(
   furniture: FurnitureDefinition,
   selection: FurnitureSelection,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
 ): PlaneBounds {
-  const start = toPlane(furniture, selection.start);
-  const end = toPlane(furniture, selection.end);
+  const start = toPlane(furniture, selection.start, plane);
+  const end = toPlane(furniture, selection.end, plane);
   return {
     minA: Math.min(start.a, end.a),
     maxA: Math.max(start.a, end.a),
@@ -94,16 +106,21 @@ function selectionBounds(
 function selectionFromBounds(
   furniture: FurnitureDefinition,
   bounds: PlaneBounds,
-  layer: number,
+  slice: number,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
 ): FurnitureSelection {
   return {
-    start: fromPlane(furniture, { a: bounds.minA, b: bounds.minB }, layer),
-    end: fromPlane(furniture, { a: bounds.maxA, b: bounds.maxB }, layer),
+    start: fromPlane(furniture, { a: bounds.minA, b: bounds.minB }, slice, plane),
+    end: fromPlane(furniture, { a: bounds.maxA, b: bounds.maxB }, slice, plane),
   };
 }
 
-function isInsidePlane(furniture: FurnitureDefinition, point: PlanePoint): boolean {
-  const size = planeSize(furniture);
+function isInsidePlane(
+  furniture: FurnitureDefinition,
+  point: PlanePoint,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
+): boolean {
+  const size = planeSize(furniture, plane);
   return point.a >= 0 && point.b >= 0 && point.a < size.a && point.b < size.b;
 }
 
@@ -111,11 +128,15 @@ function containsCell(
   furniture: FurnitureDefinition,
   selection: FurnitureSelection,
   cell: FurnitureCell,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
 ): boolean {
-  const bounds = selectionBounds(furniture, selection);
-  const point = toPlane(furniture, cell);
-  const sameLayer = furniture.placement !== "volume" ||
-    cell.z === planeLayer(furniture, selection);
+  const bounds = selectionBounds(furniture, selection, plane);
+  const point = toPlane(furniture, cell, plane);
+  const sameLayer = plane === "xz"
+    ? cell.y === planeSlice(furniture, selection, plane)
+    : plane === "yz"
+      ? cell.x === planeSlice(furniture, selection, plane)
+      : cell.z === planeSlice(furniture, selection, plane);
   return sameLayer && point.a >= bounds.minA && point.a <= bounds.maxA &&
     point.b >= bounds.minB && point.b <= bounds.maxB;
 }
@@ -177,16 +198,17 @@ export function resizeFurnitureGrid(
 export function cellsInFurnitureSelection(
   furniture: FurnitureDefinition,
   selection: FurnitureSelection | null,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
 ): FurnitureCell[] {
   if (!selection) return [];
-  const bounds = selectionBounds(furniture, selection);
-  const layer = planeLayer(furniture, selection);
+  const bounds = selectionBounds(furniture, selection, plane);
+  const slice = planeSlice(furniture, selection, plane);
   const cells: FurnitureCell[] = [];
   for (let b = bounds.minB; b <= bounds.maxB; b += 1) {
     for (let a = bounds.minA; a <= bounds.maxA; a += 1) {
       const point = { a, b };
-      if (isInsidePlane(furniture, point)) {
-        cells.push(fromPlane(furniture, point, layer));
+      if (isInsidePlane(furniture, point, plane)) {
+        cells.push(fromPlane(furniture, point, slice, plane));
       }
     }
   }
@@ -196,9 +218,10 @@ export function cellsInFurnitureSelection(
 export function eraseFurnitureSelection(
   furniture: FurnitureDefinition,
   selection: FurnitureSelection,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
 ): FurnitureDefinition {
   const voxels = furniture.voxels.filter(
-    (voxel) => !containsCell(furniture, selection, voxel),
+    (voxel) => !containsCell(furniture, selection, voxel, plane),
   );
   return voxels.length === furniture.voxels.length
     ? furniture
@@ -211,15 +234,16 @@ function transformedFurniture(
   targetSelection: FurnitureSelection,
   transform: (point: PlanePoint) => PlanePoint,
   duplicate: boolean,
+  plane: FurnitureEditPlane,
 ): FurnitureTransformResult {
-  const targetCells = cellsInFurnitureSelection(furniture, targetSelection);
-  const expectedCellCount = cellsInFurnitureSelection(furniture, selection).length;
+  const targetCells = cellsInFurnitureSelection(furniture, targetSelection, plane);
+  const expectedCellCount = cellsInFurnitureSelection(furniture, selection, plane).length;
   if (targetCells.length !== expectedCellCount) {
     return { furniture, selection, changed: false, blocked: true };
   }
 
   const selected = furniture.voxels.filter((voxel) =>
-    containsCell(furniture, selection, voxel)
+    containsCell(furniture, selection, voxel, plane)
   );
   if (selected.length === 0) {
     return {
@@ -230,13 +254,18 @@ function transformedFurniture(
     };
   }
 
-  const layer = planeLayer(furniture, selection);
+  const slice = planeSlice(furniture, selection, plane);
   const next = new Map(furniture.voxels.map((voxel) => [voxelKey(voxel), { ...voxel }]));
   if (!duplicate) {
     selected.forEach((voxel) => next.delete(voxelKey(voxel)));
   }
   selected.forEach((voxel) => {
-    const target = fromPlane(furniture, transform(toPlane(furniture, voxel)), layer);
+    const target = fromPlane(
+      furniture,
+      transform(toPlane(furniture, voxel, plane)),
+      slice,
+      plane,
+    );
     next.set(voxelKey(target), {
       ...target,
       material: voxel.material,
@@ -257,58 +286,66 @@ export function moveFurnitureSelection(
   deltaA: number,
   deltaB: number,
   duplicate = false,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
 ): FurnitureTransformResult {
-  const bounds = selectionBounds(furniture, selection);
-  const layer = planeLayer(furniture, selection);
+  const bounds = selectionBounds(furniture, selection, plane);
+  const slice = planeSlice(furniture, selection, plane);
   const targetBounds = {
     minA: bounds.minA + deltaA,
     maxA: bounds.maxA + deltaA,
     minB: bounds.minB + deltaB,
     maxB: bounds.maxB + deltaB,
   };
-  const targetSelection = selectionFromBounds(furniture, targetBounds, layer);
+  const targetSelection = selectionFromBounds(furniture, targetBounds, slice, plane);
   return transformedFurniture(
     furniture,
     selection,
     targetSelection,
     (point) => ({ a: point.a + deltaA, b: point.b + deltaB }),
     duplicate,
+    plane,
   );
 }
 
-export function moveFurnitureSelectionLayer(
+export function moveFurnitureSelectionSlice(
   furniture: FurnitureDefinition,
   selection: FurnitureSelection,
-  deltaZ: number,
+  delta: number,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
 ): FurnitureTransformResult {
-  if (furniture.placement !== "volume") {
-    return { furniture, selection, changed: false, blocked: true };
-  }
-  const targetLayer = selection.start.z + deltaZ;
-  if (targetLayer < 0 || targetLayer >= furniture.grid.height) {
+  const currentSlice = planeSlice(furniture, selection, plane);
+  const maxSlice = plane === "xz"
+    ? furniture.grid.depth
+    : plane === "yz"
+      ? furniture.grid.width
+      : furniture.grid.height;
+  const targetSlice = currentSlice + delta;
+  if (targetSlice < 0 || targetSlice >= maxSlice) {
     return { furniture, selection, changed: false, blocked: true };
   }
   const selected = furniture.voxels.filter((voxel) =>
-    containsCell(furniture, selection, voxel)
+    containsCell(furniture, selection, voxel, plane)
   );
-  const targetSelection = {
-    start: { ...selection.start, z: targetLayer },
-    end: { ...selection.end, z: targetLayer },
-  };
+  const bounds = selectionBounds(furniture, selection, plane);
+  const targetSelection = selectionFromBounds(
+    furniture,
+    bounds,
+    targetSlice,
+    plane,
+  );
   if (selected.length === 0) {
-    return {
-      furniture,
-      selection: targetSelection,
-      changed: false,
-      blocked: false,
-    };
+    return { furniture, selection: targetSelection, changed: false, blocked: false };
   }
   const next = new Map(
     furniture.voxels.map((voxel) => [voxelKey(voxel), { ...voxel }]),
   );
   selected.forEach((voxel) => next.delete(voxelKey(voxel)));
   selected.forEach((voxel) => {
-    const target = { ...voxel, z: voxel.z + deltaZ };
+    const target = plane === "xz"
+      ? { ...voxel, y: voxel.y + delta }
+      : plane === "yz"
+        ? { ...voxel, x: voxel.x + delta }
+        : { ...voxel, z: voxel.z + delta };
     next.set(voxelKey(target), target);
   });
   return {
@@ -319,12 +356,24 @@ export function moveFurnitureSelectionLayer(
   };
 }
 
+export function moveFurnitureSelectionLayer(
+  furniture: FurnitureDefinition,
+  selection: FurnitureSelection,
+  deltaZ: number,
+): FurnitureTransformResult {
+  if (furniture.placement !== "volume") {
+    return { furniture, selection, changed: false, blocked: true };
+  }
+  return moveFurnitureSelectionSlice(furniture, selection, deltaZ, "xy");
+}
+
 export function rotateFurnitureSelection(
   furniture: FurnitureDefinition,
   selection: FurnitureSelection,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
 ): FurnitureTransformResult {
-  const bounds = selectionBounds(furniture, selection);
-  const layer = planeLayer(furniture, selection);
+  const bounds = selectionBounds(furniture, selection, plane);
+  const slice = planeSlice(furniture, selection, plane);
   const targetBounds = {
     minA: bounds.minA,
     maxA: bounds.minA + (bounds.maxB - bounds.minB),
@@ -334,12 +383,13 @@ export function rotateFurnitureSelection(
   return transformedFurniture(
     furniture,
     selection,
-    selectionFromBounds(furniture, targetBounds, layer),
+    selectionFromBounds(furniture, targetBounds, slice, plane),
     (point) => ({
       a: bounds.minA + bounds.maxB - point.b,
       b: bounds.minB + point.a - bounds.minA,
     }),
     false,
+    plane,
   );
 }
 
@@ -347,8 +397,9 @@ export function mirrorFurnitureSelection(
   furniture: FurnitureDefinition,
   selection: FurnitureSelection,
   axis: "a" | "b",
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
 ): FurnitureTransformResult {
-  const bounds = selectionBounds(furniture, selection);
+  const bounds = selectionBounds(furniture, selection, plane);
   return transformedFurniture(
     furniture,
     selection,
@@ -357,6 +408,7 @@ export function mirrorFurnitureSelection(
       ? { a: bounds.minA + bounds.maxA - point.a, b: point.b }
       : { a: point.a, b: bounds.minB + bounds.maxB - point.b },
     false,
+    plane,
   );
 }
 
@@ -373,22 +425,23 @@ export function floodFillFurniture(
   start: FurnitureCell,
   material: FurnitureMaterialId,
   color?: string,
+  plane: FurnitureEditPlane = defaultFurnitureEditPlane(furniture),
 ): FurnitureDefinition {
-  const startPoint = toPlane(furniture, start);
-  if (!isInsidePlane(furniture, startPoint)) return furniture;
+  const startPoint = toPlane(furniture, start, plane);
+  if (!isInsidePlane(furniture, startPoint, plane)) return furniture;
   const voxels = new Map(furniture.voxels.map((voxel) => [voxelKey(voxel), { ...voxel }]));
   const target = voxels.get(voxelKey(start));
   if (target?.material === material && target.color === color) return furniture;
 
-  const layer = furniture.placement === "volume" ? start.z : 0;
+  const slice = plane === "xz" ? start.y : plane === "yz" ? start.x : start.z;
   const queue: PlanePoint[] = [startPoint];
   const visited = new Set<string>();
   while (queue.length > 0) {
     const point = queue.shift();
-    if (!point || !isInsidePlane(furniture, point)) continue;
+    if (!point || !isInsidePlane(furniture, point, plane)) continue;
     const pointKey = `${point.a}:${point.b}`;
     if (visited.has(pointKey)) continue;
-    const cell = fromPlane(furniture, point, layer);
+    const cell = fromPlane(furniture, point, slice, plane);
     if (!voxelStyleMatches(voxels.get(voxelKey(cell)), target)) continue;
     visited.add(pointKey);
     voxels.set(voxelKey(cell), {

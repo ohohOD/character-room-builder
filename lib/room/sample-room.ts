@@ -1,0 +1,3 @@
+﻿import type{PaletteId,RoomDocument}from"./types";
+export const PALETTES={sage:{name:"정원 세이지",wall:"#e9e3d7",floor:"#c8aa83",wood:"#75513d",cloth:"#82937b",accent:"#d7b1a8",ink:"#3c342f"},rose:{name:"잉크 로즈",wall:"#eee2de",floor:"#c9aa91",wood:"#68483c",cloth:"#9b6670",accent:"#d8b58f",ink:"#3e3030"},night:{name:"푸른 밤",wall:"#cbd0d2",floor:"#8b7a72",wood:"#493f3e",cloth:"#526b78",accent:"#d2a86e",ink:"#282b30"}}as const;
+export function makeSampleRoom(seed:string,palette:PaletteId):RoomDocument{return{schemaVersion:1,rendererVersion:1,id:"first-room",seed,palette,layout:"corner",objects:[{id:"bed",type:"bed",x:1,y:4},{id:"desk",type:"desk",x:5,y:1}],provenance:{generatedImageModel:false,stylePack:"paper-attic-v0"}}}

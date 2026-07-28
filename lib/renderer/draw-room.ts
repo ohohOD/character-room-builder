@@ -12,6 +12,49 @@ const ROOM_WIDTH = 8;
 const ROOM_DEPTH = 6;
 const WALL_HEIGHT = 4.8;
 
+const OBJECT_FOOTPRINTS: Partial<
+  Record<RoomObject["type"], { width: number; depth: number }>
+> = {
+  bed: { width: 2.8, depth: 1.75 },
+  chair: { width: 0.86, depth: 0.78 },
+  desk: { width: 2.18, depth: 0.78 },
+  lamp: { width: 0.24, depth: 0.24 },
+  letter: { width: 0.58, depth: 0.34 },
+  plant: { width: 0.68, depth: 0.68 },
+  shelf: { width: 1.9, depth: 0.48 },
+};
+
+function sortByProjectedDepth(objects: RoomObject[]): RoomObject[] {
+  const byId = new Map(objects.map((object) => [object.id, object]));
+  const sourceOrder = new Map(objects.map((object, index) => [object.id, index]));
+  const resolvedDepth = new Map<string, number>();
+
+  const getDepth = (object: RoomObject, visiting = new Set<string>()): number => {
+    const cached = resolvedDepth.get(object.id);
+    if (cached !== undefined) return cached;
+
+    const footprint = OBJECT_FOOTPRINTS[object.type] ?? { width: 0, depth: 0 };
+    let depth = object.x + object.y + footprint.width + footprint.depth;
+
+    if (object.parentId && !visiting.has(object.id)) {
+      const parent = byId.get(object.parentId);
+      if (parent) {
+        const nextVisiting = new Set(visiting).add(object.id);
+        depth = Math.max(depth, getDepth(parent, nextVisiting) + 0.001);
+      }
+    }
+
+    resolvedDepth.set(object.id, depth);
+    return depth;
+  };
+
+  return [...objects].sort((first, second) => {
+    const difference = getDepth(first) - getDepth(second);
+    if (difference !== 0) return difference;
+    return (sourceOrder.get(first.id) ?? 0) - (sourceOrder.get(second.id) ?? 0);
+  });
+}
+
 function hashSeed(value: string): number {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -482,6 +525,20 @@ function drawBed(
   const x = object.x;
   const y = object.y;
 
+  // The headboard belongs at the low-x end of the bed. Drawing it first keeps
+  // the mattress and bedding in front instead of letting the board slice them.
+  box(
+    context,
+    project,
+    palette,
+    x - 0.03,
+    y - 0.03,
+    0.05,
+    0.14,
+    1.82,
+    1.18,
+    palette.woodDark,
+  );
   box(context, project, palette, x, y, 0.05, 2.8, 1.75, 0.34, palette.wood);
   box(
     context,
@@ -519,19 +576,6 @@ function drawBed(
     0.17,
     mixColor(palette.ceramic, "#FFFFFF", 0.2),
   );
-  box(
-    context,
-    project,
-    palette,
-    x + 0.72,
-    y - 0.02,
-    0.05,
-    0.11,
-    1.82,
-    1.18,
-    palette.woodDark,
-  );
-
   if (random() > 0.5) {
     line(
       context,
@@ -554,47 +598,46 @@ function drawDesk(
   const width = 2.18;
   const depth = 0.78;
 
-  box(context, project, palette, x, y, 0.04, width, depth, 1.18, palette.wood);
-  box(
-    context,
-    project,
-    palette,
-    x + 0.12,
-    y + 0.09,
-    0.05,
-    0.16,
-    0.14,
-    1.05,
-    palette.woodDark,
-  );
-  box(
-    context,
-    project,
-    palette,
-    x + width - 0.3,
-    y + depth - 0.22,
-    0.05,
-    0.16,
-    0.14,
-    1.05,
-    palette.woodDark,
-  );
+  // Supports are painted before the slab so their tops disappear beneath it.
+  [
+    [x + 0.12, y + 0.1],
+    [x + 0.12, y + depth - 0.22],
+  ]
+    .sort(
+      ([firstX, firstY], [secondX, secondY]) =>
+        firstX + firstY - (secondX + secondY),
+    )
+    .forEach(([legX, legY]) => {
+      box(
+        context,
+        project,
+        palette,
+        legX,
+        legY,
+        0.04,
+        0.16,
+        0.14,
+        1.01,
+        palette.woodDark,
+      );
+    });
   box(
     context,
     project,
     palette,
     x + width - 0.68,
     y + 0.13,
+    0.08,
     0.58,
     0.55,
-    0.55,
-    0.45,
+    0.95,
     mixColor(palette.wood, palette.wall, 0.08),
   );
+  box(context, project, palette, x, y, 1.03, width, depth, 0.18, palette.wood);
   line(
     context,
-    project(x + width - 0.58, y + depth + 0.01, 0.83),
-    project(x + width - 0.18, y + depth + 0.01, 0.83),
+    project(x + width - 0.58, y + depth - 0.09, 0.7),
+    project(x + width - 0.18, y + depth - 0.09, 0.7),
     withAlpha(palette.ink, 0.48),
   );
 }
@@ -608,35 +651,41 @@ function drawChair(
   const x = object.x;
   const y = object.y;
 
-  box(context, project, palette, x, y, 0.48, 0.86, 0.78, 0.16, palette.wood);
+  // Legs are underneath the seat, so they enter the painter's queue first.
   [
     [x + 0.06, y + 0.06],
     [x + 0.66, y + 0.06],
     [x + 0.06, y + 0.58],
     [x + 0.66, y + 0.58],
-  ].forEach(([legX, legY]) => {
-    box(
-      context,
-      project,
-      palette,
-      legX,
-      legY,
-      0.02,
-      0.11,
-      0.11,
-      0.46,
-      palette.woodDark,
-    );
-  });
+  ]
+    .sort(
+      ([firstX, firstY], [secondX, secondY]) =>
+        firstX + firstY - (secondX + secondY),
+    )
+    .forEach(([legX, legY]) => {
+      box(
+        context,
+        project,
+        palette,
+        legX,
+        legY,
+        0.02,
+        0.11,
+        0.11,
+        0.46,
+        palette.woodDark,
+      );
+    });
+  box(context, project, palette, x, y, 0.48, 0.86, 0.78, 0.16, palette.wood);
   box(
     context,
     project,
     palette,
     x + 0.05,
-    y + 0.02,
+    y + 0.63,
     0.64,
+    0.76,
     0.13,
-    0.72,
     0.9,
     palette.wood,
   );
@@ -880,15 +929,14 @@ export function drawRoom(
       ),
     );
 
-  room.objects
-    .filter(
+  sortByProjectedDepth(
+    room.objects.filter(
       (object) =>
         object.type !== "window" &&
         object.type !== "frame" &&
         object.type !== "rug",
-    )
-    .sort((first, second) => first.x + first.y - (second.x + second.y))
-    .forEach((object) =>
-      drawObject(context, project, palette, object, room.seed),
-    );
+    ),
+  ).forEach((object) =>
+    drawObject(context, project, palette, object, room.seed),
+  );
 }

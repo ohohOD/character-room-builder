@@ -18,6 +18,7 @@ export interface RoomObject {
   x: number;
   y: number;
   z?: number;
+  parentId?: string;
   variant?: string;
 }
 

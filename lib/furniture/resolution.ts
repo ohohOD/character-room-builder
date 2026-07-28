@@ -35,7 +35,7 @@ function expandVoxel(
 ): FurnitureVoxel[] {
   const xOffsets = [0, 1];
   const yOffsets = placement === "wall" ? [0] : [0, 1];
-  const zOffsets = placement === "volume" ? [0, 1] : [0];
+  const zOffsets = placement === "floor" ? [0] : [0, 1];
   return xOffsets.flatMap((xOffset) =>
     yOffsets.flatMap((yOffset) =>
       zOffsets.map((zOffset) => ({

@@ -6,6 +6,7 @@ import { FURNITURE_MATERIALS } from "../furniture/presets";
 import {
   getFurnitureRenderGeometry,
   getPlacedFurnitureFootprint,
+  type FurnitureRenderCell,
 } from "../furniture/placement";
 import type {
   PlacedFurnitureObject,
@@ -171,6 +172,53 @@ function meshEdgeKey(from: MeshPoint, to: MeshPoint): string {
   return fromKey < toKey ? `${fromKey}|${toKey}` : `${toKey}|${fromKey}`;
 }
 
+function furnitureCellPositionKey(x: number, y: number, z: number): string {
+  return `${x}:${y}:${z}`;
+}
+
+function furnitureCellStyleKey(cell: FurnitureRenderCell): string {
+  return `${cell.material}:${cell.color ?? ""}`;
+}
+
+function hasExposedFurnitureFace(
+  cells: Map<string, FurnitureRenderCell>,
+  cell: FurnitureRenderCell,
+  orientation: "front" | "side" | "top",
+  floor: boolean,
+): boolean {
+  if (orientation === "front") {
+    return !cells.has(furnitureCellPositionKey(
+      cell.localX,
+      cell.localY + 1,
+      cell.localZ,
+    ));
+  }
+  if (orientation === "side") {
+    return !cells.has(furnitureCellPositionKey(
+      cell.localX + 1,
+      cell.localY,
+      cell.localZ,
+    ));
+  }
+  return floor || !cells.has(furnitureCellPositionKey(
+    cell.localX,
+    cell.localY,
+    cell.localZ + 1,
+  ));
+}
+
+function hasFurnitureStyleBoundary(
+  cells: Map<string, FurnitureRenderCell>,
+  cell: FurnitureRenderCell,
+  neighbor: FurnitureRenderCell | undefined,
+  orientation: "front" | "side" | "top",
+  floor: boolean,
+): boolean {
+  return neighbor !== undefined &&
+    furnitureCellStyleKey(neighbor) !== furnitureCellStyleKey(cell) &&
+    hasExposedFurnitureFace(cells, neighbor, orientation, floor);
+}
+
 function addMeshFace(
   context: CanvasRenderingContext2D,
   edges: Map<string, MeshEdge>,
@@ -179,6 +227,7 @@ function addMeshFace(
   screenPoints: Point[],
   fill: string,
   outlineEdges: readonly [boolean, boolean, boolean, boolean] = [true, true, true, true],
+  outlineGroup = fill,
 ): void {
   fillPolygon(context, screenPoints, fill);
   meshPoints.forEach((from, index) => {
@@ -186,7 +235,7 @@ function addMeshFace(
     const nextIndex = (index + 1) % meshPoints.length;
     const to = meshPoints[nextIndex];
     const meshKey = meshEdgeKey(from, to);
-    const orientationKey = `${orientation}:${meshKey}`;
+    const orientationKey = `${orientation}:${outlineGroup}:${meshKey}`;
     const current = edges.get(orientationKey);
     edges.set(orientationKey, {
       count: (current?.count ?? 0) + 1,
@@ -956,6 +1005,7 @@ function drawPlacedFurniture(
       .sort((first, second) => first.localZ - second.localZ || first.localX - second.localX)
       .forEach((cell) => {
         const color = cell.color ?? FURNITURE_MATERIALS[cell.material].color;
+        const outlineGroup = furnitureCellStyleKey(cell);
         const from = anchor + cell.localX * geometry.cellSize;
         const z = baseZ + cell.localZ * geometry.cellSize;
         const points = wall === "back"
@@ -983,6 +1033,8 @@ function drawPlacedFurniture(
           ],
           points,
           mixColor(color, "#FFFFFF", 0.1),
+          [true, true, true, true],
+          outlineGroup,
         );
       });
     strokeMeshOutline(context, edges, withAlpha(palette.ink, 0.68));
@@ -1004,8 +1056,11 @@ function drawPlacedFurniture(
     );
   }
 
-  const occupied = new Set(
-    geometry.cells.map((cell) => `${cell.localX}:${cell.localY}:${cell.localZ}`),
+  const cellsByPosition = new Map(
+    geometry.cells.map((cell) => [
+      furnitureCellPositionKey(cell.localX, cell.localY, cell.localZ),
+      cell,
+    ]),
   );
   const edges = new Map<string, MeshEdge>();
   const floorHeight = 0.035;
@@ -1035,20 +1090,44 @@ function drawPlacedFurniture(
       const meshX = cell.localX;
       const meshY = cell.localY;
       const meshZ = cell.localZ;
-      const hasFrontNeighbor = occupied.has(`${meshX}:${meshY + 1}:${meshZ}`);
-      const hasSideNeighbor = occupied.has(`${meshX + 1}:${meshY}:${meshZ}`);
-      const hasTopNeighbor = object.definition.placement !== "floor" &&
-        occupied.has(`${meshX}:${meshY}:${meshZ + 1}`);
-      const hasBackNeighbor = occupied.has(`${meshX}:${meshY - 1}:${meshZ}`);
-      const hasLeftNeighbor = occupied.has(`${meshX - 1}:${meshY}:${meshZ}`);
-      const hasBottomNeighbor = object.definition.placement !== "floor" &&
-        occupied.has(`${meshX}:${meshY}:${meshZ - 1}`);
+      const frontNeighbor = cellsByPosition.get(
+        furnitureCellPositionKey(meshX, meshY + 1, meshZ),
+      );
+      const sideNeighbor = cellsByPosition.get(
+        furnitureCellPositionKey(meshX + 1, meshY, meshZ),
+      );
+      const topNeighbor = object.definition.placement === "floor"
+        ? undefined
+        : cellsByPosition.get(furnitureCellPositionKey(meshX, meshY, meshZ + 1));
+      const backNeighbor = cellsByPosition.get(
+        furnitureCellPositionKey(meshX, meshY - 1, meshZ),
+      );
+      const leftNeighbor = cellsByPosition.get(
+        furnitureCellPositionKey(meshX - 1, meshY, meshZ),
+      );
+      const bottomNeighbor = object.definition.placement === "floor"
+        ? undefined
+        : cellsByPosition.get(furnitureCellPositionKey(meshX, meshY, meshZ - 1));
+      const hasFrontNeighbor = frontNeighbor !== undefined;
+      const hasSideNeighbor = sideNeighbor !== undefined;
+      const hasTopNeighbor = topNeighbor !== undefined;
+      const hasBackNeighbor = backNeighbor !== undefined;
+      const hasLeftNeighbor = leftNeighbor !== undefined;
+      const hasBottomNeighbor = bottomNeighbor !== undefined;
+      const floor = object.definition.placement === "floor";
+      const outlineGroup = furnitureCellStyleKey(cell);
+      const frontStyleBoundary = (neighbor: typeof cell | undefined): boolean =>
+        hasFurnitureStyleBoundary(cellsByPosition, cell, neighbor, "front", floor);
+      const sideStyleBoundary = (neighbor: typeof cell | undefined): boolean =>
+        hasFurnitureStyleBoundary(cellsByPosition, cell, neighbor, "side", floor);
+      const topStyleBoundary = (neighbor: typeof cell | undefined): boolean =>
+        hasFurnitureStyleBoundary(cellsByPosition, cell, neighbor, "top", floor);
       const hasOverhangingTopNeighbor = hasTopNeighbor && [
-        `${meshX + 1}:${meshY}:${meshZ + 1}`,
-        `${meshX - 1}:${meshY}:${meshZ + 1}`,
-        `${meshX}:${meshY + 1}:${meshZ + 1}`,
-        `${meshX}:${meshY - 1}:${meshZ + 1}`,
-      ].some((key) => occupied.has(key));
+        furnitureCellPositionKey(meshX + 1, meshY, meshZ + 1),
+        furnitureCellPositionKey(meshX - 1, meshY, meshZ + 1),
+        furnitureCellPositionKey(meshX, meshY + 1, meshZ + 1),
+        furnitureCellPositionKey(meshX, meshY - 1, meshZ + 1),
+      ].some((key) => cellsByPosition.has(key));
 
       if (!hasFrontNeighbor) {
         addMeshFace(
@@ -1069,11 +1148,14 @@ function drawPlacedFurniture(
           ],
           mixColor(color, palette.ink, 0.08),
           [
-            !hasBottomNeighbor,
-            !hasSideNeighbor && !hasOverhangingTopNeighbor,
-            !hasTopNeighbor,
-            !hasLeftNeighbor && !hasOverhangingTopNeighbor,
+            !hasBottomNeighbor || frontStyleBoundary(bottomNeighbor),
+            (!hasSideNeighbor && !hasOverhangingTopNeighbor) ||
+              frontStyleBoundary(sideNeighbor),
+            !hasTopNeighbor || frontStyleBoundary(topNeighbor),
+            (!hasLeftNeighbor && !hasOverhangingTopNeighbor) ||
+              frontStyleBoundary(leftNeighbor),
           ],
+          outlineGroup,
         );
       }
       if (!hasSideNeighbor) {
@@ -1095,11 +1177,14 @@ function drawPlacedFurniture(
           ],
           mixColor(color, palette.ink, 0.18),
           [
-            !hasBottomNeighbor,
-            !hasFrontNeighbor && !hasOverhangingTopNeighbor,
-            !hasTopNeighbor,
-            !hasBackNeighbor && !hasOverhangingTopNeighbor,
+            !hasBottomNeighbor || sideStyleBoundary(bottomNeighbor),
+            (!hasFrontNeighbor && !hasOverhangingTopNeighbor) ||
+              sideStyleBoundary(frontNeighbor),
+            !hasTopNeighbor || sideStyleBoundary(topNeighbor),
+            (!hasBackNeighbor && !hasOverhangingTopNeighbor) ||
+              sideStyleBoundary(backNeighbor),
           ],
+          outlineGroup,
         );
       }
       if (!hasTopNeighbor) {
@@ -1121,11 +1206,12 @@ function drawPlacedFurniture(
           ],
           mixColor(color, "#FFFFFF", 0.16),
           [
-            !hasBackNeighbor,
-            !hasSideNeighbor,
-            !hasFrontNeighbor,
-            !hasLeftNeighbor,
+            !hasBackNeighbor || topStyleBoundary(backNeighbor),
+            !hasSideNeighbor || topStyleBoundary(sideNeighbor),
+            !hasFrontNeighbor || topStyleBoundary(frontNeighbor),
+            !hasLeftNeighbor || topStyleBoundary(leftNeighbor),
           ],
+          outlineGroup,
         );
       }
     });

@@ -129,6 +129,41 @@ test("정밀 2× 조립은 외형 크기를 유지하고 기존 셀을 세분화
   assert.equal(decodeFurniture(encodeFurniture(fine)).resolution, 2);
 });
 
+test("바닥과 벽의 정밀 2× 조립은 각 조립면의 두 축을 모두 세분화한다", () => {
+  const floor: FurnitureDefinition = {
+    ...makeFurniture(),
+    placement: "floor",
+    grid: { width: 4, depth: 4, height: 1 },
+    voxels: [{ x: 1, y: 2, z: 0, material: "rose" }],
+  };
+  const wall: FurnitureDefinition = {
+    ...makeFurniture(),
+    placement: "wall",
+    grid: { width: 4, depth: 1, height: 4 },
+    voxels: [{ x: 1, y: 0, z: 2, material: "woodDark" }],
+  };
+
+  const fineFloor = convertFurnitureResolution(floor, 2);
+  const fineWall = convertFurnitureResolution(wall, 2);
+
+  assert.deepEqual(fineFloor.grid, { width: 8, depth: 8, height: 1 });
+  assert.deepEqual(fineFloor.voxels, [
+    { x: 2, y: 4, z: 0, material: "rose" },
+    { x: 2, y: 5, z: 0, material: "rose" },
+    { x: 3, y: 4, z: 0, material: "rose" },
+    { x: 3, y: 5, z: 0, material: "rose" },
+  ]);
+  assert.deepEqual(fineWall.grid, { width: 8, depth: 1, height: 8 });
+  assert.deepEqual(fineWall.voxels, [
+    { x: 2, y: 0, z: 4, material: "woodDark" },
+    { x: 2, y: 0, z: 5, material: "woodDark" },
+    { x: 3, y: 0, z: 4, material: "woodDark" },
+    { x: 3, y: 0, z: 5, material: "woodDark" },
+  ]);
+  assert.equal(encodeFurniture(convertFurnitureResolution(fineFloor, 1)), encodeFurniture(floor));
+  assert.equal(encodeFurniture(convertFurnitureResolution(fineWall, 1)), encodeFurniture(wall));
+});
+
 test("체크섬과 URL-safe Base64 형식을 검증한다", () => {
   const code = encodeFurniture(makeFurniture());
   const damaged = code.slice(0, -1) + (code.endsWith("0") ? "1" : "0");

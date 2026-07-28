@@ -970,12 +970,13 @@ function drawPlant(
   }
 }
 
-function drawPlacedFurniture(
+export function drawPlacedFurniture(
   context: CanvasRenderingContext2D,
   project: Projector,
   palette: RoomPalette,
   object: PlacedFurnitureObject,
   selected: boolean,
+  outline = true,
 ): void {
   const geometry = getFurnitureRenderGeometry(object.definition, object.rotation);
   if (geometry.cells.length === 0) return;
@@ -1037,7 +1038,9 @@ function drawPlacedFurniture(
           outlineGroup,
         );
       });
-    strokeMeshOutline(context, edges, withAlpha(palette.ink, 0.68));
+    if (outline) {
+      strokeMeshOutline(context, edges, withAlpha(palette.ink, 0.68));
+    }
     return;
   }
 
@@ -1216,7 +1219,9 @@ function drawPlacedFurniture(
       }
     });
 
-  strokeMeshOutline(context, edges, withAlpha(palette.ink, 0.68));
+  if (outline) {
+    strokeMeshOutline(context, edges, withAlpha(palette.ink, 0.68));
+  }
 }
 
 function drawObject(

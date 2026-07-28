@@ -1,6 +1,6 @@
 # Character Room Builder
 
-생성형 이미지 없이, 공개된 조형 규칙과 HTML5 Canvas 코드로 커뮤니티 캐릭터의 방을 만드는 절차적 인테리어 도구.
+생성형 이미지 없이, 공개된 조형 규칙과 HTML5 Canvas 코드로 아이소메트릭 복셀 가구를 만들고 어디서든 쓸 수 있게 내보내는 로컬 제작 도구.
 
 > Procedural Canvas furniture and rooms for character communities.
 
@@ -20,15 +20,16 @@
 - [제품 기획](docs/PRODUCT.md)
 - [아키텍처와 신뢰 경계](docs/ARCHITECTURE.md)
 - [방 데이터와 시트 초안](docs/DATA-MODEL.md)
+- [Furniture Foundry 로드맵](docs/FOUNDRY-ROADMAP.md)
 - [오픈소스 조사 메모](docs/RESEARCH-NOTES.md)
 - [AI 작업 투명성](docs/AI-ASSISTANCE.md)
 - [디자인 락](STYLESEED.md)
 
 ## 현재 범위
 
-Canvas2D 아이소메트릭 대표 방, 결정론적 시드, 세 가지 스타일 팩, ROOM1 방 코드, RoomDocument 기반 가구 렌더링을 포함한다. 방 화면의 Room Composer는 FURN1 가구를 불러와 바닥·벽에 클릭 배치하고 이동·회전·삭제할 수 있으며, 배치 결과를 방 코드에 포함한다.
+기본 화면은 Furniture Foundry이며 Room Composer는 `/room`의 배치 쇼룸으로 남는다. 기존 `/furniture#FURN1...` 공유 링크도 계속 복원된다. Room Composer는 FURN1 가구를 불러와 바닥·벽에 클릭 배치하고 이동·회전·삭제할 수 있으며, 배치 결과를 방 코드에 포함한다.
 
-/furniture의 Furniture Foundry에서는 아이소메트릭 조립판을 직접 칠해 입체 가구, 바닥 소품, 벽 소품을 만들 수 있다. 기본 1×와 같은 외형 크기에서 셀을 축마다 두 배로 나누는 정밀 2× 조립을 전환할 수 있다. 재료와 표면색을 따로 고르고 HEX 컬러 코드를 입력할 수 있으며, 실제 사용한 최근 10색만 브라우저 로컬 저장소에 남기거나 직접 지울 수 있다. 결과는 FURN1 URL-safe Base64 코드 또는 URL 해시 링크로 공유하며, 이름·선택적 제작자 표기·라이선스 외의 계정 정보는 수집하지 않는다. Google 연동은 아직 구현하지 않는다.
+Furniture Foundry에서는 아이소메트릭 조립판을 직접 칠해 입체 가구, 바닥 소품, 벽 소품을 만들 수 있다. 기본 1×와 같은 외형 크기에서 셀을 축마다 두 배로 나누는 정밀 2× 조립을 전환할 수 있다. 재료와 표면색을 따로 고르고 HEX 컬러 코드를 입력할 수 있으며, 실제 사용한 최근 10색만 브라우저 로컬 저장소에 남기거나 직접 지울 수 있다. 결과는 FURN1 코드·해시 링크뿐 아니라 투명 PNG, WebP, 입체·바닥 가구의 4방향 PNG 시트로 브라우저 안에서 내보낼 수 있다. 이름·선택적 제작자 표기·라이선스 외의 계정 정보는 수집하지 않는다. Google 연동은 아직 구현하지 않는다.
 
 ## 라이선스
 

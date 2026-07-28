@@ -14,6 +14,15 @@ import {
   type FurnitureCell,
 } from "../../lib/furniture/draw-furniture";
 import {
+  canvasToBlob,
+  type FurnitureExportBackground,
+  type FurnitureExportRotation,
+  type FurnitureExportSize,
+  renderFurnitureImage,
+  renderFurnitureSpriteSheet,
+  safeFurnitureFilename,
+} from "../../lib/furniture/export-image";
+import {
   decodeFurniture,
   encodeFurniture,
 } from "../../lib/furniture/codec";
@@ -82,6 +91,7 @@ function editableLayer(furniture: FurnitureDefinition): number {
 
 export function FurnitureFoundry() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const exportCanvasRef = useRef<HTMLCanvasElement>(null);
   const dragToolRef = useRef<Tool | null>(null);
   const lastPaintedRef = useRef("");
   const statusTimerRef = useRef<number | null>(null);
@@ -102,6 +112,13 @@ export function FurnitureFoundry() {
   const [hover, setHover] = useState<FurnitureCell | null>(null);
   const [codeInput, setCodeInput] = useState("");
   const [status, setStatus] = useState("");
+  const [exportSize, setExportSize] = useState<FurnitureExportSize>(512);
+  const [exportRotation, setExportRotation] = useState<FurnitureExportRotation>(0);
+  const [exportBackground, setExportBackground] =
+    useState<FurnitureExportBackground>("transparent");
+  const [exportOutline, setExportOutline] = useState(true);
+  const [exportShadow, setExportShadow] = useState(true);
+  const [exportStatus, setExportStatus] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -191,6 +208,25 @@ export function FurnitureFoundry() {
     observer.observe(canvas);
     return () => observer.disconnect();
   }, [activeLayer, furniture, hover, selectedColor, selectedMaterial, tool]);
+
+  useEffect(() => {
+    const canvas = exportCanvasRef.current;
+    if (!canvas) return;
+    renderFurnitureImage(canvas, furniture, {
+      size: exportSize,
+      rotation: exportRotation,
+      background: exportBackground,
+      outline: exportOutline,
+      shadow: exportShadow,
+    });
+  }, [
+    exportBackground,
+    exportOutline,
+    exportRotation,
+    exportShadow,
+    exportSize,
+    furniture,
+  ]);
 
   function flash(message: string): void {
     if (statusTimerRef.current !== null) {
@@ -417,6 +453,71 @@ export function FurnitureFoundry() {
     }
   }
 
+  function downloadBlob(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function exportStill(type: "image/png" | "image/webp"): Promise<void> {
+    if (furniture.voxels.length === 0) {
+      setExportStatus("먼저 한 칸 이상 만들어주세요.");
+      return;
+    }
+    try {
+      const canvas = document.createElement("canvas");
+      renderFurnitureImage(canvas, furniture, {
+        size: exportSize,
+        rotation: exportRotation,
+        background: exportBackground,
+        outline: exportOutline,
+        shadow: exportShadow,
+      });
+      const blob = await canvasToBlob(canvas, type);
+      if (type === "image/webp" && blob.type !== "image/webp") {
+        throw new Error("이 브라우저는 WebP 내보내기를 지원하지 않아요.");
+      }
+      const extension = type === "image/png" ? "png" : "webp";
+      downloadBlob(blob, `${safeFurnitureFilename(furniture.name)}.${extension}`);
+      setExportStatus(`${exportSize} × ${exportSize} ${extension.toUpperCase()}를 저장했어요.`);
+    } catch (error) {
+      setExportStatus(
+        error instanceof Error ? error.message : "이미지를 내보내지 못했어요.",
+      );
+    }
+  }
+
+  async function exportSpriteSheet(): Promise<void> {
+    if (furniture.voxels.length === 0) {
+      setExportStatus("먼저 한 칸 이상 만들어주세요.");
+      return;
+    }
+    if (furniture.placement === "wall") {
+      setExportStatus("벽 소품은 단일 이미지로 내보내주세요.");
+      return;
+    }
+    try {
+      const sheet = renderFurnitureSpriteSheet(furniture, {
+        size: exportSize,
+        background: exportBackground,
+        outline: exportOutline,
+        shadow: exportShadow,
+      });
+      const blob = await canvasToBlob(sheet, "image/png");
+      downloadBlob(blob, `${safeFurnitureFilename(furniture.name)}-4dir.png`);
+      setExportStatus(
+        `${exportSize * 4} × ${exportSize} 4방향 PNG 시트를 저장했어요.`,
+      );
+    } catch (error) {
+      setExportStatus(
+        error instanceof Error ? error.message : "스프라이트 시트를 만들지 못했어요.",
+      );
+    }
+  }
+
   const placementCopy = PLACEMENT_LABELS[furniture.placement];
   const matchingPresets = FURNITURE_PRESETS.filter(
     (preset) => preset.placement === furniture.placement,
@@ -427,15 +528,15 @@ export function FurnitureFoundry() {
       <header className="masthead">
         <div>
           <nav className="product-nav" aria-label="프로젝트 화면">
-            <Link href="/">방 보기</Link>
-            <Link href="/furniture" aria-current="page">가구 공방</Link>
+            <Link href="/" aria-current="page">가구 공방</Link>
+            <Link href="/room">방 배치</Link>
           </nav>
           <p className="eyebrow">FURNITURE FOUNDRY · FURN1</p>
           <h1>아이소메트릭 가구 공방</h1>
         </div>
         <p>
-          입체 가구를 쌓거나 바닥과 벽의 조립면을 칠합니다. 결과는 이미지 파일이
-          아니라 검증 가능한 Canvas 데이터로 공유됩니다.
+          입체 가구를 쌓거나 바닥과 벽의 조립면을 칠합니다. 편집 가능한 FURN1과
+          어디서든 쓸 수 있는 투명 이미지로 가져가세요.
         </p>
       </header>
 
@@ -830,6 +931,135 @@ export function FurnitureFoundry() {
           </section>
         </aside>
       </div>
+
+      <section className="export-studio" aria-labelledby="export-title">
+        <div className="export-heading">
+          <div>
+            <p className="section-kicker">TAKE IT WITH YOU</p>
+            <h2 id="export-title">공방 밖으로 내보내기</h2>
+          </div>
+          <p>
+            방 배치와 무관하게 쓸 수 있는 아이소메트릭 결과물입니다. 파일은 이
+            브라우저에서 만들며 서버로 전송하지 않습니다.
+          </p>
+        </div>
+
+        <div className="export-workspace">
+          <div className="export-preview">
+            <canvas
+              ref={exportCanvasRef}
+              role="img"
+              aria-label={`${furniture.name} 투명 아이소메트릭 내보내기 미리보기`}
+            />
+            <p>
+              {exportSize} × {exportSize} · {exportBackground === "transparent"
+                ? "투명 배경"
+                : "웜 페이퍼"}
+            </p>
+          </div>
+
+          <div className="export-controls">
+            <div className="export-control-row">
+              <label htmlFor="export-size">이미지 크기</label>
+              <select
+                id="export-size"
+                value={exportSize}
+                onChange={(event) =>
+                  setExportSize(Number(event.target.value) as FurnitureExportSize)}
+              >
+                <option value={256}>256 × 256</option>
+                <option value={512}>512 × 512</option>
+                <option value={1024}>1024 × 1024</option>
+              </select>
+            </div>
+
+            <div className="export-control-row">
+              <label htmlFor="export-background">배경</label>
+              <select
+                id="export-background"
+                value={exportBackground}
+                onChange={(event) =>
+                  setExportBackground(event.target.value as FurnitureExportBackground)}
+              >
+                <option value="transparent">투명</option>
+                <option value="paper">웜 페이퍼</option>
+              </select>
+            </div>
+
+            <fieldset className="export-rotation-fieldset">
+              <legend>보는 방향</legend>
+              <div className="export-rotation-switch">
+                {([0, 1, 2, 3] as FurnitureExportRotation[]).map((rotation) => (
+                  <button
+                    type="button"
+                    key={rotation}
+                    aria-pressed={exportRotation === rotation}
+                    data-active={exportRotation === rotation}
+                    disabled={furniture.placement === "wall"}
+                    onClick={() => setExportRotation(rotation)}
+                  >
+                    {rotation + 1}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+
+            <div className="export-checks">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={exportOutline}
+                  onChange={(event) => setExportOutline(event.target.checked)}
+                />
+                외곽선·재질 경계
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={exportShadow}
+                  disabled={furniture.placement === "wall"}
+                  onChange={(event) => setExportShadow(event.target.checked)}
+                />
+                바닥 그림자
+              </label>
+            </div>
+
+            <div className="export-actions">
+              <button
+                type="button"
+                className="button primary"
+                disabled={furniture.voxels.length === 0}
+                onClick={() => void exportStill("image/png")}
+              >
+                PNG 저장
+              </button>
+              <button
+                type="button"
+                className="button secondary"
+                disabled={furniture.voxels.length === 0}
+                onClick={() => void exportStill("image/webp")}
+              >
+                WebP 저장
+              </button>
+              <button
+                type="button"
+                className="button secondary"
+                disabled={
+                  furniture.voxels.length === 0 || furniture.placement === "wall"
+                }
+                onClick={() => void exportSpriteSheet()}
+              >
+                4방향 시트 PNG
+              </button>
+            </div>
+            <p className="control-note">
+              4방향 시트는 입체·바닥 가구를 방향별 한 프레임씩 가로로 배치합니다.
+              벽 소품은 단일 PNG·WebP로 내보냅니다.
+            </p>
+            <p className="status" aria-live="polite">{exportStatus}</p>
+          </div>
+        </div>
+      </section>
 
       <footer className="trust-footer" aria-label="제작 투명성">
         <p>

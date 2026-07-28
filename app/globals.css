@@ -888,6 +888,189 @@ canvas:focus-visible {
   padding-inline: 6px;
   font-size: 10px;
 }
+
+.export-studio {
+  margin-top: 30px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.export-heading {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.78fr) minmax(320px, 1.22fr);
+  gap: 32px;
+  align-items: end;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.export-heading h2 {
+  margin: 3px 0 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(22px, 2.4vw, 32px);
+  font-weight: 500;
+}
+
+.export-heading > p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.72;
+}
+
+.export-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 370px;
+  min-height: 520px;
+}
+
+.export-preview {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-width: 0;
+  padding: 28px;
+  background: #e8e0d3;
+}
+
+.export-preview canvas {
+  display: block;
+  width: min(100%, 520px);
+  height: auto;
+  aspect-ratio: 1;
+  border: 1px solid rgba(48, 44, 39, 0.2);
+  background: rgba(251, 250, 246, 0.58);
+}
+
+.export-preview p {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font: 10px / 1.5 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.04em;
+}
+
+.export-controls {
+  padding: 24px 22px;
+  border-left: 1px solid var(--line);
+}
+
+.export-control-row {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.export-control-row label,
+.export-rotation-fieldset legend {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.export-control-row select {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.export-rotation-fieldset {
+  margin: 20px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.export-rotation-switch {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 8px;
+}
+
+.export-rotation-switch button {
+  min-height: 44px;
+  border: 1px solid var(--line-strong);
+  border-right: 0;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.38);
+  cursor: pointer;
+}
+
+.export-rotation-switch button:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.export-rotation-switch button:last-child {
+  border-right: 1px solid var(--line-strong);
+  border-radius: 0 4px 4px 0;
+}
+
+.export-rotation-switch button[data-active="true"] {
+  position: relative;
+  color: var(--sage);
+  background: var(--sage-soft);
+  box-shadow: inset 0 0 0 1px var(--sage);
+}
+
+.export-rotation-switch button:disabled {
+  color: var(--faint);
+  cursor: not-allowed;
+}
+
+.export-checks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.export-checks label {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.export-checks input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--sage);
+}
+
+.export-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-top: 20px;
+}
+
+.export-actions .button {
+  min-height: 44px;
+  padding-inline: 8px;
+  font-size: 10px;
+}
+
+.export-actions .button:last-child {
+  grid-column: 1 / -1;
+}
+
+.export-actions .button:disabled {
+  color: var(--faint);
+  background: rgba(255, 255, 255, 0.28);
+  cursor: not-allowed;
+}
+
 @media (max-width: 900px) {
   .masthead {
     display: grid;
@@ -920,6 +1103,10 @@ canvas:focus-visible {
 
   .foundry-canvas {
     height: 590px;
+  }
+
+  .export-workspace {
+    grid-template-columns: minmax(0, 1fr) 330px;
   }
 
   .intro-section {
@@ -990,6 +1177,35 @@ canvas:focus-visible {
 
   .foundry-help p + p {
     margin-top: 4px;
+  }
+
+  .export-heading {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 18px 16px;
+  }
+
+  .export-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .export-preview {
+    min-height: 360px;
+    padding: 18px;
+  }
+
+  .export-preview canvas {
+    width: min(100%, 390px);
+  }
+
+  .export-controls {
+    padding: 20px 16px;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .export-control-row {
+    grid-template-columns: 100px 1fr;
   }
 
   .code-actions {

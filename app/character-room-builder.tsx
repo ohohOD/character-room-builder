@@ -296,8 +296,8 @@ export function CharacterRoomBuilder() {
       <header className="masthead">
         <div>
           <nav className="product-nav" aria-label="프로젝트 화면">
-            <Link href="/" aria-current="page">방 보기</Link>
-            <Link href="/furniture">가구 공방</Link>
+            <Link href="/">가구 공방</Link>
+            <Link href="/room" aria-current="page">방 배치</Link>
           </nav>
           <p className="eyebrow">PROCEDURAL CANVAS ROOM · SCENE 01</p>
           <h1>Character Room Builder</h1>
@@ -371,7 +371,7 @@ export function CharacterRoomBuilder() {
               <button type="button" className="button primary" onClick={loadFurnitureCode}>
                 가구 불러오기
               </button>
-              <Link href="/furniture" className="button secondary">
+              <Link href="/" className="button secondary">
                 공방으로 가기
               </Link>
             </div>

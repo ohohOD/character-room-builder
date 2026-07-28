@@ -2,13 +2,16 @@ import type {
   FurnitureDefinition,
   FurnitureLicense,
   FurnitureMaterialId,
+  FurniturePlacement,
   FurnitureVoxel,
 } from "./types";
+import { normalizeFurnitureColor } from "./colors.ts";
 
 const PREFIX = "FURN1";
 const MAX_CODE_LENGTH = 48_000;
 const MAX_INPUT_LENGTH = MAX_CODE_LENGTH + 4_096;
 const MAX_VOXELS = 1_200;
+const PLACEMENTS = new Set<FurniturePlacement>(["volume", "floor", "wall"]);
 const MATERIALS = new Set<FurnitureMaterialId>([
   "wood",
   "woodDark",
@@ -91,11 +94,26 @@ export function normalizeFurniture(value: unknown): FurnitureDefinition {
     throw new Error("가구 이름은 문자열이어야 해요.");
   }
 
+  const placement = value.placement ?? "volume";
+  if (!PLACEMENTS.has(placement as FurniturePlacement)) {
+    throw new Error("지원하지 않는 가구 배치 면이에요.");
+  }
+
   const width = readBoundedInteger(value.grid.width, 4, 16, "가로 크기");
-  const depth = readBoundedInteger(value.grid.depth, 4, 16, "깊이 크기");
-  const height = readBoundedInteger(value.grid.height, 2, 12, "높이 크기");
+  const depth = readBoundedInteger(
+    value.grid.depth,
+    placement === "wall" ? 1 : 4,
+    placement === "wall" ? 1 : 16,
+    "깊이 크기",
+  );
+  const height = readBoundedInteger(
+    value.grid.height,
+    placement === "floor" ? 1 : placement === "wall" ? 4 : 2,
+    placement === "floor" ? 1 : 12,
+    "높이 크기",
+  );
   if (value.voxels.length > Math.min(width * depth * height, MAX_VOXELS)) {
-    throw new Error("가구 코드에 복셀이 너무 많아요.");
+    throw new Error("가구 코드에 조립 칸이 너무 많아요.");
   }
 
   const voxelMap = new Map<string, FurnitureVoxel>();
@@ -106,11 +124,20 @@ export function normalizeFurniture(value: unknown): FurnitureDefinition {
     const x = readBoundedInteger(candidate.x, 0, width - 1, "복셀 x");
     const y = readBoundedInteger(candidate.y, 0, depth - 1, "복셀 y");
     const z = readBoundedInteger(candidate.z, 0, height - 1, "복셀 z");
+    const color = candidate.color === undefined
+      ? undefined
+      : typeof candidate.color === "string"
+        ? normalizeFurnitureColor(candidate.color)
+        : null;
+    if (candidate.color !== undefined && color === null) {
+      throw new Error("표면색은 #RRGGBB 형식이어야 해요.");
+    }
     voxelMap.set(`${x}:${y}:${z}`, {
       x,
       y,
       z,
       material: candidate.material as FurnitureMaterialId,
+      ...(color ? { color } : {}),
     });
   });
 
@@ -132,6 +159,7 @@ export function normalizeFurniture(value: unknown): FurnitureDefinition {
   return {
     schemaVersion: 1,
     rendererVersion: 1,
+    placement: placement as FurniturePlacement,
     name: value.name.trim().slice(0, 40) || "이름 없는 가구",
     grid: { width, depth, height },
     voxels: [...voxelMap.values()].sort(
@@ -149,13 +177,28 @@ export function normalizeFurniture(value: unknown): FurnitureDefinition {
   };
 }
 
+function serializeFurniture(furniture: FurnitureDefinition): object {
+  return {
+    schemaVersion: furniture.schemaVersion,
+    rendererVersion: furniture.rendererVersion,
+    ...(furniture.placement === "volume"
+      ? {}
+      : { placement: furniture.placement }),
+    name: furniture.name,
+    grid: furniture.grid,
+    voxels: furniture.voxels,
+    provenance: furniture.provenance,
+  };
+}
+
 export function encodeFurniture(furniture: FurnitureDefinition): string {
+  const normalized = normalizeFurniture(furniture);
   const bytes = new TextEncoder().encode(
-    JSON.stringify(normalizeFurniture(furniture)),
+    JSON.stringify(serializeFurniture(normalized)),
   );
   const code = `${PREFIX}.${toBase64Url(bytes)}.${checksum(bytes)}`;
   if (code.length > MAX_CODE_LENGTH) {
-    throw new Error("가구 코드가 너무 커요. 복셀 수를 줄여주세요.");
+    throw new Error("가구 코드가 너무 커요. 조립 칸 수를 줄여주세요.");
   }
   return code;
 }

@@ -17,7 +17,7 @@ RoomDocument → 배치·충돌 규칙 → Canvas2D renderer → 화면·PNG 출
 
 ## Furniture Foundry
 
-FurnitureDefinition → 복셀 정렬 → Canvas2D 아이소메트릭 렌더러 순서로 동작한다. 편집 중 데이터는 브라우저 메모리에만 있고, 사용자가 공유를 눌렀을 때만 FURN1 코드 또는 URL fragment(#)를 만든다. URL fragment는 HTTP 요청에 포함되지 않으며 별도의 서버 저장소나 계정 연결을 요구하지 않는다.
+FurnitureDefinition → 조립 셀 정렬 → Canvas2D 아이소메트릭 렌더러 순서로 동작한다. `placement`는 입체(`volume`), 바닥(`floor`), 벽(`wall`) 중 하나이며, 바닥과 벽 셀은 큐브가 아니라 얇은 표면으로 렌더링한다. 편집 중 가구 데이터는 브라우저 메모리에만 있고, 사용자가 공유를 눌렀을 때만 FURN1 코드 또는 URL fragment(#)를 만든다. 실제 사용한 최근 10색은 편의를 위해 기기 로컬 저장소에만 보관하며 UI에서 삭제할 수 있다. URL fragment는 HTTP 요청에 포함되지 않으며 별도의 서버 저장소나 계정 연결을 요구하지 않는다.
 
 가구 데이터는 렌더러와 분리되어 같은 FURN1 코드와 rendererVersion이 같은 결과를 만들 수 있어야 한다. 방 배치기가 가구를 소비할 때도 완성된 FurnitureDefinition을 하나의 오브젝트로 취급한다.
 

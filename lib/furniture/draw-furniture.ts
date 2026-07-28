@@ -1,4 +1,5 @@
 import { FURNITURE_MATERIALS } from "./presets";
+import { normalizeFurnitureColor } from "./colors";
 import type {
   FurnitureDefinition,
   FurnitureMaterialId,
@@ -6,7 +7,7 @@ import type {
 } from "./types";
 
 type Point = { x: number; y: number };
-export type FurnitureCell = { x: number; y: number };
+export type FurnitureCell = { x: number; y: number; z: number };
 
 interface Layout {
   width: number;
@@ -21,6 +22,7 @@ interface Layout {
 export interface FurnitureRenderState {
   activeLayer: number;
   selectedMaterial: FurnitureMaterialId;
+  selectedColor: string;
   tool: "paint" | "erase";
   hover: FurnitureCell | null;
 }
@@ -49,11 +51,34 @@ function withAlpha(color: string, alpha: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
+function voxelColor(voxel: FurnitureVoxel): string {
+  return (voxel.color && normalizeFurnitureColor(voxel.color)) ??
+    FURNITURE_MATERIALS[voxel.material].color;
+}
+
 function makeLayout(
   width: number,
   height: number,
   furniture: FurnitureDefinition,
 ): Layout {
+  if (furniture.placement === "wall") {
+    const horizontalFit = ((width - 120) * 2) / furniture.grid.width;
+    const verticalFit =
+      (height - 150) /
+      (furniture.grid.height * 0.5 + furniture.grid.width * 0.25);
+    const tileWidth = Math.max(28, Math.min(56, horizontalFit, verticalFit));
+    const tileHeight = tileWidth * 0.5;
+    return {
+      width,
+      height,
+      originX: width * 0.5 - furniture.grid.width * tileWidth * 0.25,
+      originY: Math.min(height - 88, height * 0.62),
+      tileWidth,
+      tileHeight,
+      cubeHeight: tileHeight,
+    };
+  }
+
   const gridSpan = furniture.grid.width + furniture.grid.depth;
   const tileWidth = Math.max(28, Math.min(52, ((width - 72) * 2) / gridSpan));
   const tileHeight = tileWidth * 0.5;
@@ -68,12 +93,7 @@ function makeLayout(
   };
 }
 
-function project(
-  layout: Layout,
-  x: number,
-  y: number,
-  z: number,
-): Point {
+function project(layout: Layout, x: number, y: number, z: number): Point {
   return {
     x: layout.originX + (x - y) * layout.tileWidth * 0.5,
     y:
@@ -102,12 +122,7 @@ function polygon(
   context.stroke();
 }
 
-function diamond(
-  layout: Layout,
-  x: number,
-  y: number,
-  z: number,
-): Point[] {
+function diamond(layout: Layout, x: number, y: number, z: number): Point[] {
   return [
     project(layout, x, y, z),
     project(layout, x + 1, y, z),
@@ -116,12 +131,21 @@ function diamond(
   ];
 }
 
+function wallTile(layout: Layout, x: number, z: number): Point[] {
+  return [
+    project(layout, x, 0, z),
+    project(layout, x + 1, 0, z),
+    project(layout, x + 1, 0, z + 1),
+    project(layout, x, 0, z + 1),
+  ];
+}
+
 function drawCube(
   context: CanvasRenderingContext2D,
   layout: Layout,
   voxel: FurnitureVoxel,
 ): void {
-  const base = FURNITURE_MATERIALS[voxel.material].color;
+  const base = voxelColor(voxel);
   const bottom = diamond(layout, voxel.x, voxel.y, voxel.z);
   const top = diamond(layout, voxel.x, voxel.y, voxel.z + 1);
   const outline = withAlpha("#302c27", 0.72);
@@ -138,15 +162,36 @@ function drawCube(
     mixColor(base, "#302c27", 0.28),
     outline,
   );
-  polygon(
-    context,
-    top,
-    mixColor(base, "#ffffff", 0.14),
-    outline,
-  );
+  polygon(context, top, mixColor(base, "#ffffff", 0.14), outline);
 }
 
-function drawAssemblyGrid(
+function drawFloorCell(
+  context: CanvasRenderingContext2D,
+  layout: Layout,
+  voxel: FurnitureVoxel,
+): void {
+  const base = voxelColor(voxel);
+  const bottom = diamond(layout, voxel.x, voxel.y, 0);
+  const top = diamond(layout, voxel.x, voxel.y, 0.14);
+  const outline = withAlpha("#302c27", 0.58);
+  polygon(
+    context,
+    [bottom[3], bottom[2], top[2], top[3]],
+    mixColor(base, "#302c27", 0.14),
+    outline,
+    0.8,
+  );
+  polygon(
+    context,
+    [bottom[1], bottom[2], top[2], top[1]],
+    mixColor(base, "#302c27", 0.2),
+    outline,
+    0.8,
+  );
+  polygon(context, top, mixColor(base, "#ffffff", 0.1), outline, 0.9);
+}
+
+function drawVolumeGrid(
   context: CanvasRenderingContext2D,
   layout: Layout,
   furniture: FurnitureDefinition,
@@ -168,6 +213,73 @@ function drawAssemblyGrid(
   }
 }
 
+function drawFloorSurface(
+  context: CanvasRenderingContext2D,
+  layout: Layout,
+  furniture: FurnitureDefinition,
+): void {
+  for (let y = 0; y < furniture.grid.depth; y += 1) {
+    for (let x = 0; x < furniture.grid.width; x += 1) {
+      polygon(
+        context,
+        diamond(layout, x, y, 0.02),
+        (x + y) % 2 === 0 ? "#ece4d8" : "#e6dccf",
+        "rgba(85, 122, 79, 0.24)",
+        0.8,
+      );
+    }
+  }
+  furniture.voxels.forEach((voxel) => drawFloorCell(context, layout, voxel));
+}
+
+function drawWallSurface(
+  context: CanvasRenderingContext2D,
+  layout: Layout,
+  furniture: FurnitureDefinition,
+): void {
+  const wall = [
+    project(layout, 0, 0, 0),
+    project(layout, furniture.grid.width, 0, 0),
+    project(layout, furniture.grid.width, 0, furniture.grid.height),
+    project(layout, 0, 0, furniture.grid.height),
+  ];
+  polygon(context, wall, "#e6dccf", "rgba(48, 44, 39, 0.42)", 1.2);
+
+  for (let z = 0; z < furniture.grid.height; z += 1) {
+    for (let x = 0; x < furniture.grid.width; x += 1) {
+      polygon(
+        context,
+        wallTile(layout, x, z),
+        (x + z) % 2 === 0 ? "rgba(251, 250, 246, 0.34)" : "rgba(232, 224, 211, 0.2)",
+        "rgba(85, 122, 79, 0.25)",
+        0.8,
+      );
+    }
+  }
+
+  furniture.voxels.forEach((voxel) => {
+    const base = voxelColor(voxel);
+    polygon(
+      context,
+      wallTile(layout, voxel.x, voxel.z),
+      mixColor(base, "#ffffff", 0.12),
+      withAlpha("#302c27", 0.62),
+      1,
+    );
+  });
+}
+
+function drawBackdrop(
+  context: CanvasRenderingContext2D,
+  bounds: DOMRect,
+): void {
+  const backdrop = context.createLinearGradient(0, 0, 0, bounds.height);
+  backdrop.addColorStop(0, "#f7f3eb");
+  backdrop.addColorStop(1, "#e8e0d3");
+  context.fillStyle = backdrop;
+  context.fillRect(0, 0, bounds.width, bounds.height);
+}
+
 export function drawFurniture(
   canvas: HTMLCanvasElement,
   furniture: FurnitureDefinition,
@@ -184,43 +296,50 @@ export function drawFurniture(
   context.clearRect(0, 0, bounds.width, bounds.height);
 
   const layout = makeLayout(bounds.width, bounds.height, furniture);
-  const backdrop = context.createLinearGradient(0, 0, 0, bounds.height);
-  backdrop.addColorStop(0, "#f7f3eb");
-  backdrop.addColorStop(1, "#e8e0d3");
-  context.fillStyle = backdrop;
-  context.fillRect(0, 0, bounds.width, bounds.height);
+  drawBackdrop(context, bounds);
 
-  const floor = [
-    project(layout, 0, 0, 0),
-    project(layout, furniture.grid.width, 0, 0),
-    project(layout, furniture.grid.width, furniture.grid.depth, 0),
-    project(layout, 0, furniture.grid.depth, 0),
-  ];
-  polygon(context, floor, "#ddd0bd", "rgba(48, 44, 39, 0.36)", 1.2);
+  if (furniture.placement === "wall") {
+    drawWallSurface(context, layout, furniture);
+  } else {
+    const floor = [
+      project(layout, 0, 0, 0),
+      project(layout, furniture.grid.width, 0, 0),
+      project(layout, furniture.grid.width, furniture.grid.depth, 0),
+      project(layout, 0, furniture.grid.depth, 0),
+    ];
+    polygon(context, floor, "#ddd0bd", "rgba(48, 44, 39, 0.36)", 1.2);
 
-  drawAssemblyGrid(context, layout, furniture, state.activeLayer);
-
-  furniture.voxels
-    .filter((voxel) => voxel.z <= state.activeLayer)
-    .sort(
-      (first, second) =>
-        first.x + first.y + first.z - (second.x + second.y + second.z) ||
-        first.z - second.z ||
-        first.y - second.y ||
-        first.x - second.x,
-    )
-    .forEach((voxel) => drawCube(context, layout, voxel));
+    if (furniture.placement === "floor") {
+      drawFloorSurface(context, layout, furniture);
+    } else {
+      drawVolumeGrid(context, layout, furniture, state.activeLayer);
+      furniture.voxels
+        .filter((voxel) => voxel.z <= state.activeLayer)
+        .sort(
+          (first, second) =>
+            first.x + first.y + first.z - (second.x + second.y + second.z) ||
+            first.z - second.z ||
+            first.y - second.y ||
+            first.x - second.x,
+        )
+        .forEach((voxel) => drawCube(context, layout, voxel));
+    }
+  }
 
   if (state.hover) {
-    const material = FURNITURE_MATERIALS[state.selectedMaterial].color;
+    const material = normalizeFurnitureColor(state.selectedColor) ??
+      FURNITURE_MATERIALS[state.selectedMaterial].color;
+    const hoverPoints = furniture.placement === "wall"
+      ? wallTile(layout, state.hover.x, state.hover.z)
+      : diamond(
+          layout,
+          state.hover.x,
+          state.hover.y,
+          furniture.placement === "floor" ? 0.18 : state.hover.z + 1,
+        );
     polygon(
       context,
-      diamond(
-        layout,
-        state.hover.x,
-        state.hover.y,
-        state.activeLayer + 1,
-      ),
+      hoverPoints,
       state.tool === "erase"
         ? "rgba(195, 105, 92, 0.24)"
         : withAlpha(material, 0.38),
@@ -229,14 +348,13 @@ export function drawFurniture(
     );
   }
 
+  const metric = furniture.placement === "volume"
+    ? `LAYER ${state.activeLayer + 1}/${furniture.grid.height} · ${furniture.voxels.length} VOXELS`
+    : `${furniture.placement.toUpperCase()} SURFACE · ${furniture.voxels.length} CELLS`;
   context.fillStyle = "rgba(48, 44, 39, 0.58)";
   context.font = '11px "Cascadia Code", Consolas, monospace';
   context.textAlign = "right";
-  context.fillText(
-    `LAYER ${state.activeLayer + 1}/${furniture.grid.height} · ${furniture.voxels.length} VOXELS`,
-    bounds.width - 18,
-    bounds.height - 18,
-  );
+  context.fillText(metric, bounds.width - 18, bounds.height - 18);
 }
 
 export function clientPointToFurnitureCell(
@@ -250,19 +368,29 @@ export function clientPointToFurnitureCell(
   const layout = makeLayout(bounds.width, bounds.height, furniture);
   const localX = clientX - bounds.left;
   const localY = clientY - bounds.top;
+
+  if (furniture.placement === "wall") {
+    const xCoordinate =
+      (localX - layout.originX) / (layout.tileWidth * 0.5);
+    const zCoordinate =
+      (layout.originY + xCoordinate * layout.tileHeight * 0.5 - localY) /
+      layout.cubeHeight;
+    const x = Math.floor(xCoordinate);
+    const z = Math.floor(zCoordinate);
+    if (x < 0 || z < 0 || x >= furniture.grid.width || z >= furniture.grid.height) {
+      return null;
+    }
+    return { x, y: 0, z };
+  }
+
+  const planeZ = furniture.placement === "floor" ? 0.14 : activeLayer + 1;
   const deltaX = localX - layout.originX;
-  const deltaY =
-    localY - layout.originY + (activeLayer + 1) * layout.cubeHeight;
+  const deltaY = localY - layout.originY + planeZ * layout.cubeHeight;
   const x = Math.floor(deltaY / layout.tileHeight + deltaX / layout.tileWidth);
   const y = Math.floor(deltaY / layout.tileHeight - deltaX / layout.tileWidth);
 
-  if (
-    x < 0 ||
-    y < 0 ||
-    x >= furniture.grid.width ||
-    y >= furniture.grid.depth
-  ) {
+  if (x < 0 || y < 0 || x >= furniture.grid.width || y >= furniture.grid.depth) {
     return null;
   }
-  return { x, y };
+  return { x, y, z: furniture.placement === "floor" ? 0 : activeLayer };
 }

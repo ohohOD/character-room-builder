@@ -22,6 +22,12 @@ export interface FurnitureVoxel {
   color?: string;
 }
 
+export interface FurnitureCell {
+  x: number;
+  y: number;
+  z: number;
+}
+
 export interface FurnitureDefinition {
   schemaVersion: 1;
   rendererVersion: 1;

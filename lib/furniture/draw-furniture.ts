@@ -1,13 +1,19 @@
 import { FURNITURE_MATERIALS } from "./presets";
 import { normalizeFurnitureColor } from "./colors";
 import type {
+  FurnitureCell,
   FurnitureDefinition,
   FurnitureMaterialId,
   FurnitureVoxel,
 } from "./types";
 
 type Point = { x: number; y: number };
-export type FurnitureCell = { x: number; y: number; z: number };
+
+export interface FurnitureViewport {
+  zoom: number;
+  panX: number;
+  panY: number;
+}
 
 interface Layout {
   width: number;
@@ -23,8 +29,10 @@ export interface FurnitureRenderState {
   activeLayer: number;
   selectedMaterial: FurnitureMaterialId;
   selectedColor: string;
-  tool: "paint" | "erase";
+  tool: "paint" | "erase" | "select" | "pan" | "fill" | "eyedropper";
   hover: FurnitureCell | null;
+  selection?: FurnitureCell[];
+  viewport?: FurnitureViewport;
 }
 
 function parseHex(color: string): [number, number, number] {
@@ -60,19 +68,22 @@ function makeLayout(
   width: number,
   height: number,
   furniture: FurnitureDefinition,
+  viewport: FurnitureViewport = { zoom: 1, panX: 0, panY: 0 },
 ): Layout {
   if (furniture.placement === "wall") {
     const horizontalFit = ((width - 120) * 2) / furniture.grid.width;
     const verticalFit =
       (height - 150) /
       (furniture.grid.height * 0.5 + furniture.grid.width * 0.25);
-    const tileWidth = Math.max(28, Math.min(56, horizontalFit, verticalFit));
+    const tileWidth =
+      Math.max(28, Math.min(56, horizontalFit, verticalFit)) * viewport.zoom;
     const tileHeight = tileWidth * 0.5;
     return {
       width,
       height,
-      originX: width * 0.5 - furniture.grid.width * tileWidth * 0.25,
-      originY: Math.min(height - 88, height * 0.62),
+      originX:
+        width * 0.5 - furniture.grid.width * tileWidth * 0.25 + viewport.panX,
+      originY: Math.min(height - 88, height * 0.62) + viewport.panY,
       tileWidth,
       tileHeight,
       cubeHeight: tileHeight,
@@ -80,13 +91,14 @@ function makeLayout(
   }
 
   const gridSpan = furniture.grid.width + furniture.grid.depth;
-  const tileWidth = Math.max(28, Math.min(52, ((width - 72) * 2) / gridSpan));
+  const tileWidth =
+    Math.max(28, Math.min(52, ((width - 72) * 2) / gridSpan)) * viewport.zoom;
   const tileHeight = tileWidth * 0.5;
   return {
     width,
     height,
-    originX: width * 0.5,
-    originY: Math.max(165, height * 0.39),
+    originX: width * 0.5 + viewport.panX,
+    originY: Math.max(165, height * 0.39) + viewport.panY,
     tileWidth,
     tileHeight,
     cubeHeight: tileHeight,
@@ -295,7 +307,7 @@ export function drawFurniture(
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   context.clearRect(0, 0, bounds.width, bounds.height);
 
-  const layout = makeLayout(bounds.width, bounds.height, furniture);
+  const layout = makeLayout(bounds.width, bounds.height, furniture, state.viewport);
   drawBackdrop(context, bounds);
 
   if (furniture.placement === "wall") {
@@ -325,6 +337,24 @@ export function drawFurniture(
         .forEach((voxel) => drawCube(context, layout, voxel));
     }
   }
+
+  state.selection?.forEach((cell) => {
+    const points = furniture.placement === "wall"
+      ? wallTile(layout, cell.x, cell.z)
+      : diamond(
+          layout,
+          cell.x,
+          cell.y,
+          furniture.placement === "floor" ? 0.2 : cell.z + 1.02,
+        );
+    polygon(
+      context,
+      points,
+      "rgba(85, 122, 79, 0.18)",
+      "rgba(48, 44, 39, 0.72)",
+      1.8,
+    );
+  });
 
   if (state.hover) {
     const material = normalizeFurnitureColor(state.selectedColor) ??
@@ -363,9 +393,10 @@ export function clientPointToFurnitureCell(
   clientX: number,
   clientY: number,
   activeLayer: number,
+  viewport?: FurnitureViewport,
 ): FurnitureCell | null {
   const bounds = canvas.getBoundingClientRect();
-  const layout = makeLayout(bounds.width, bounds.height, furniture);
+  const layout = makeLayout(bounds.width, bounds.height, furniture, viewport);
   const localX = clientX - bounds.left;
   const localY = clientY - bounds.top;
 

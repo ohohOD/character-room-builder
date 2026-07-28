@@ -4,15 +4,30 @@ import Link from "next/link";
 import {
   type KeyboardEvent,
   type PointerEvent,
+  type WheelEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import {
   clientPointToFurnitureCell,
   drawFurniture,
-  type FurnitureCell,
+  type FurnitureViewport,
 } from "../../lib/furniture/draw-furniture";
+import {
+  cellsInFurnitureSelection,
+  cloneFurniture,
+  eraseFurnitureSelection,
+  floodFillFurniture,
+  furnitureGridLimits,
+  mirrorFurnitureSelection,
+  moveFurnitureSelection,
+  moveFurnitureSelectionLayer,
+  resizeFurnitureGrid,
+  rotateFurnitureSelection,
+  type FurnitureSelection,
+} from "../../lib/furniture/editing";
 import {
   canvasToBlob,
   type FurnitureExportBackground,
@@ -38,6 +53,7 @@ import {
   makeStoolPreset,
 } from "../../lib/furniture/presets";
 import type {
+  FurnitureCell,
   FurnitureDefinition,
   FurnitureLicense,
   FurnitureMaterialId,
@@ -45,10 +61,22 @@ import type {
   FurnitureResolution,
 } from "../../lib/furniture/types";
 
-type Tool = "paint" | "erase";
+type Tool = "paint" | "erase" | "fill" | "eyedropper" | "select" | "pan";
 
 const COLOR_HISTORY_KEY = "character-room-builder:furniture-colors:v1";
 const MAX_RECENT_COLORS = 10;
+const MAX_HISTORY = 80;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3;
+
+const TOOL_LABELS: Array<{ id: Tool; label: string; shortcut: string }> = [
+  { id: "paint", label: "쌓기·칠하기", shortcut: "B" },
+  { id: "erase", label: "지우기", shortcut: "E" },
+  { id: "fill", label: "채우기", shortcut: "F" },
+  { id: "eyedropper", label: "스포이트", shortcut: "I" },
+  { id: "select", label: "영역 선택", shortcut: "S" },
+  { id: "pan", label: "화면 이동", shortcut: "H" },
+];
 
 const LICENSE_LABELS: Record<FurnitureLicense, string> = {
   "all-rights-reserved": "권리 보유 · 재사용 전 허락 필요",
@@ -95,9 +123,19 @@ export function FurnitureFoundry() {
   const dragToolRef = useRef<Tool | null>(null);
   const lastPaintedRef = useRef("");
   const statusTimerRef = useRef<number | null>(null);
+  const gestureBeforeRef = useRef<FurnitureDefinition | null>(null);
+  const gestureStartRef = useRef<FurnitureDefinition | null>(null);
+  const undoStackRef = useRef<FurnitureDefinition[]>([]);
+  const redoStackRef = useRef<FurnitureDefinition[]>([]);
+  const panStartRef = useRef<{
+    clientX: number;
+    clientY: number;
+    viewport: FurnitureViewport;
+  } | null>(null);
   const [furniture, setFurniture] = useState<FurnitureDefinition>(() =>
     makeStoolPreset(),
   );
+  const furnitureRef = useRef(furniture);
   const [activeLayer, setActiveLayer] = useState(4);
   const [selectedMaterial, setSelectedMaterial] =
     useState<FurnitureMaterialId>("sage");
@@ -110,6 +148,14 @@ export function FurnitureFoundry() {
   const [colorHistoryReady, setColorHistoryReady] = useState(false);
   const [tool, setTool] = useState<Tool>("paint");
   const [hover, setHover] = useState<FurnitureCell | null>(null);
+  const [selection, setSelection] = useState<FurnitureSelection | null>(null);
+  const [viewport, setViewport] = useState<FurnitureViewport>({
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+  });
+  const [historyState, setHistoryState] = useState({ undo: 0, redo: 0 });
+  const [gridDraft, setGridDraft] = useState(() => ({ ...furniture.grid }));
   const [codeInput, setCodeInput] = useState("");
   const [status, setStatus] = useState("");
   const [exportSize, setExportSize] = useState<FurnitureExportSize>(512);
@@ -119,6 +165,20 @@ export function FurnitureFoundry() {
   const [exportOutline, setExportOutline] = useState(true);
   const [exportShadow, setExportShadow] = useState(true);
   const [exportStatus, setExportStatus] = useState("");
+  const selectedCells = useMemo(
+    () => cellsInFurnitureSelection(furniture, selection),
+    [furniture, selection],
+  );
+  const selectedVoxelCount = useMemo(() => {
+    const keys = new Set(selectedCells.map(cellKey));
+    return furniture.voxels.filter((voxel) => keys.has(cellKey(voxel))).length;
+  }, [furniture.voxels, selectedCells]);
+  const canUndo = historyState.undo > 0;
+  const canRedo = historyState.redo > 0;
+
+  useEffect(() => {
+    furnitureRef.current = furniture;
+  }, [furniture]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -164,9 +224,16 @@ export function FurnitureFoundry() {
       if (!hash.startsWith("FURN1.")) return;
       try {
         const decoded = decodeFurniture(hash);
+        furnitureRef.current = decoded;
         setFurniture(decoded);
+        setGridDraft({ ...decoded.grid });
         setActiveLayer(editableLayer(decoded));
         setHover(null);
+        setSelection(null);
+        setViewport({ zoom: 1, panX: 0, panY: 0 });
+        undoStackRef.current = [];
+        redoStackRef.current = [];
+        setHistoryState({ undo: 0, redo: 0 });
         setCodeInput(encodeFurniture(decoded));
         setStatus("공유 링크의 가구를 불러왔어요.");
       } catch (error) {
@@ -201,13 +268,24 @@ export function FurnitureFoundry() {
         selectedColor,
         tool,
         hover,
+        selection: selectedCells,
+        viewport,
       });
     render();
 
     const observer = new ResizeObserver(render);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [activeLayer, furniture, hover, selectedColor, selectedMaterial, tool]);
+  }, [
+    activeLayer,
+    furniture,
+    hover,
+    selectedCells,
+    selectedColor,
+    selectedMaterial,
+    tool,
+    viewport,
+  ]);
 
   useEffect(() => {
     const canvas = exportCanvasRef.current;
@@ -237,6 +315,94 @@ export function FurnitureFoundry() {
       setStatus("");
       statusTimerRef.current = null;
     }, 2800);
+  }
+
+  function syncHistoryState(): void {
+    setHistoryState({
+      undo: undoStackRef.current.length,
+      redo: redoStackRef.current.length,
+    });
+  }
+
+  function pushUndoSnapshot(snapshot: FurnitureDefinition): void {
+    undoStackRef.current = [
+      ...undoStackRef.current,
+      cloneFurniture(snapshot),
+    ].slice(-MAX_HISTORY);
+    redoStackRef.current = [];
+    syncHistoryState();
+  }
+
+  function setFurnitureDocument(next: FurnitureDefinition): void {
+    furnitureRef.current = next;
+    setFurniture(next);
+    setGridDraft({ ...next.grid });
+    setActiveLayer((layer) =>
+      next.placement === "volume"
+        ? Math.min(next.grid.height - 1, Math.max(0, layer))
+        : 0,
+    );
+    setHover(null);
+  }
+
+  function commitFurniture(
+    next: FurnitureDefinition,
+    message?: string,
+  ): boolean {
+    const current = furnitureRef.current;
+    if (JSON.stringify(current) === JSON.stringify(next)) return false;
+    pushUndoSnapshot(current);
+    setFurnitureDocument(next);
+    clearPublishedCode();
+    if (message) flash(message);
+    return true;
+  }
+
+  function beginFurnitureGesture(): void {
+    gestureStartRef.current = furnitureRef.current;
+    gestureBeforeRef.current = cloneFurniture(furnitureRef.current);
+  }
+
+  function finishFurnitureGesture(): void {
+    if (
+      gestureStartRef.current &&
+      gestureBeforeRef.current &&
+      furnitureRef.current !== gestureStartRef.current
+    ) {
+      pushUndoSnapshot(gestureBeforeRef.current);
+    }
+    gestureStartRef.current = null;
+    gestureBeforeRef.current = null;
+  }
+
+  function undoFurniture(): void {
+    const previous = undoStackRef.current.at(-1);
+    if (!previous) return;
+    undoStackRef.current = undoStackRef.current.slice(0, -1);
+    redoStackRef.current = [
+      ...redoStackRef.current,
+      cloneFurniture(furnitureRef.current),
+    ].slice(-MAX_HISTORY);
+    setFurnitureDocument(cloneFurniture(previous));
+    setSelection(null);
+    clearPublishedCode();
+    syncHistoryState();
+    flash("이전 편집 상태로 돌아갔어요.");
+  }
+
+  function redoFurniture(): void {
+    const next = redoStackRef.current.at(-1);
+    if (!next) return;
+    redoStackRef.current = redoStackRef.current.slice(0, -1);
+    undoStackRef.current = [
+      ...undoStackRef.current,
+      cloneFurniture(furnitureRef.current),
+    ].slice(-MAX_HISTORY);
+    setFurnitureDocument(cloneFurniture(next));
+    setSelection(null);
+    clearPublishedCode();
+    syncHistoryState();
+    flash("다시 적용했어요.");
   }
 
   function clearPublishedCode(): void {
@@ -275,44 +441,47 @@ export function FurnitureFoundry() {
   function updateCell(cell: FurnitureCell, action: Tool): void {
     clearPublishedCode();
     const key = cellKey(cell);
-    setFurniture((current) => {
-      const matchingIndex = current.voxels.findIndex(
-        (voxel) => cellKey(voxel) === key,
-      );
+    const current = furnitureRef.current;
+    const matchingIndex = current.voxels.findIndex(
+      (voxel) => cellKey(voxel) === key,
+    );
+    let next = current;
 
-      if (action === "erase") {
-        if (matchingIndex < 0) return current;
-        return {
+    if (action === "erase") {
+      if (matchingIndex >= 0) {
+        next = {
           ...current,
           voxels: current.voxels.filter((_, index) => index !== matchingIndex),
         };
       }
-
+    } else if (action === "paint") {
       if (
-        matchingIndex >= 0 &&
-        current.voxels[matchingIndex].material === selectedMaterial &&
-        current.voxels[matchingIndex].color === selectedColor
+        matchingIndex < 0 ||
+        current.voxels[matchingIndex].material !== selectedMaterial ||
+        current.voxels[matchingIndex].color !== selectedColor
       ) {
-        return current;
+        const nextVoxel = {
+          x: cell.x,
+          y: cell.y,
+          z: cell.z,
+          material: selectedMaterial,
+          color: selectedColor,
+        };
+        next = matchingIndex < 0
+          ? { ...current, voxels: [...current.voxels, nextVoxel] }
+          : {
+              ...current,
+              voxels: current.voxels.map((voxel, index) =>
+                index === matchingIndex ? nextVoxel : voxel,
+              ),
+            };
       }
+    }
 
-      const nextVoxel = {
-        x: cell.x,
-        y: cell.y,
-        z: cell.z,
-        material: selectedMaterial,
-        color: selectedColor,
-      };
-      if (matchingIndex < 0) {
-        return { ...current, voxels: [...current.voxels, nextVoxel] };
-      }
-      return {
-        ...current,
-        voxels: current.voxels.map((voxel, index) =>
-          index === matchingIndex ? nextVoxel : voxel,
-        ),
-      };
-    });
+    if (next !== current) {
+      furnitureRef.current = next;
+      setFurniture(next);
+    }
   }
 
   function pointFromEvent(event: PointerEvent<HTMLCanvasElement>): FurnitureCell | null {
@@ -324,26 +493,100 @@ export function FurnitureFoundry() {
       event.clientX,
       event.clientY,
       activeLayer,
+      viewport,
     );
   }
 
   function handlePointerDown(event: PointerEvent<HTMLCanvasElement>): void {
     if (event.button !== 0 && event.button !== 2) return;
+
+    if (event.button === 0 && tool === "pan") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      dragToolRef.current = "pan";
+      panStartRef.current = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        viewport,
+      };
+      setHover(null);
+      return;
+    }
+
     const cell = pointFromEvent(event);
     if (!cell) return;
-    const action = event.button === 2 ? "erase" : tool;
+
+    if (event.button === 0 && tool === "eyedropper") {
+      const voxel = furnitureRef.current.voxels.find(
+        (candidate) => cellKey(candidate) === cellKey(cell),
+      );
+      if (!voxel) {
+        flash("색을 가져올 채워진 칸을 골라주세요.");
+        return;
+      }
+      const color = voxel.color ?? FURNITURE_MATERIALS[voxel.material].color;
+      setSelectedMaterial(voxel.material);
+      chooseColor(color);
+      rememberColor(color);
+      setTool("paint");
+      flash("이 칸의 재료와 색을 가져왔어요.");
+      return;
+    }
+
+    if (event.button === 0 && tool === "fill") {
+      const next = floodFillFurniture(
+        furnitureRef.current,
+        cell,
+        selectedMaterial,
+        selectedColor,
+      );
+      if (commitFurniture(next, "연결된 영역을 채웠어요.")) {
+        rememberColor(selectedColor);
+      }
+      return;
+    }
+
+    if (event.button === 0 && tool === "select") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      dragToolRef.current = "select";
+      setSelection({ start: cell, end: cell });
+      setHover(cell);
+      return;
+    }
+
+    const action: Tool = event.button === 2 ? "erase" : tool;
+    if (action !== "paint" && action !== "erase") return;
     event.currentTarget.setPointerCapture(event.pointerId);
     dragToolRef.current = action;
     lastPaintedRef.current = cellKey(cell);
     setHover(cell);
     if (action === "paint") rememberColor(selectedColor);
+    beginFurnitureGesture();
     updateCell(cell, action);
   }
 
   function handlePointerMove(event: PointerEvent<HTMLCanvasElement>): void {
+    if (dragToolRef.current === "pan" && panStartRef.current) {
+      const start = panStartRef.current;
+      setViewport({
+        ...start.viewport,
+        panX: start.viewport.panX + event.clientX - start.clientX,
+        panY: start.viewport.panY + event.clientY - start.clientY,
+      });
+      return;
+    }
+
     const cell = pointFromEvent(event);
     setHover(cell);
     if (!cell || !dragToolRef.current) return;
+
+    if (dragToolRef.current === "select") {
+      setSelection((current) => current ? { ...current, end: cell } : null);
+      return;
+    }
+
+    if (dragToolRef.current !== "paint" && dragToolRef.current !== "erase") {
+      return;
+    }
     const key = cellKey(cell);
     if (key === lastPaintedRef.current) return;
     lastPaintedRef.current = key;
@@ -354,32 +597,91 @@ export function FurnitureFoundry() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+    if (dragToolRef.current === "paint" || dragToolRef.current === "erase") {
+      finishFurnitureGesture();
+    }
     dragToolRef.current = null;
+    panStartRef.current = null;
     lastPaintedRef.current = "";
   }
 
+  function handleCanvasWheel(event: WheelEvent<HTMLCanvasElement>): void {
+    event.preventDefault();
+    const step = event.deltaY < 0 ? 0.1 : -0.1;
+    setViewport((current) => ({
+      ...current,
+      zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, current.zoom + step)),
+    }));
+  }
+
   function handleCanvasKeyDown(event: KeyboardEvent<HTMLCanvasElement>): void {
+    const modifier = event.ctrlKey || event.metaKey;
+    if (modifier && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      if (event.shiftKey) redoFurniture();
+      else undoFurniture();
+      return;
+    }
+    if (modifier && event.key.toLowerCase() === "y") {
+      event.preventDefault();
+      redoFurniture();
+      return;
+    }
+    if (!modifier && event.key.toLowerCase() === "b") setTool("paint");
+    if (!modifier && event.key.toLowerCase() === "e") setTool("erase");
+    if (!modifier && event.key.toLowerCase() === "f") setTool("fill");
+    if (!modifier && event.key.toLowerCase() === "i") setTool("eyedropper");
+    if (!modifier && event.key.toLowerCase() === "s") setTool("select");
+    if (!modifier && event.key.toLowerCase() === "h") setTool("pan");
+    if (!modifier && (event.key === "+" || event.key === "=")) {
+      setViewport((current) => ({
+        ...current,
+        zoom: Math.min(MAX_ZOOM, current.zoom + 0.1),
+      }));
+    }
+    if (!modifier && event.key === "-") {
+      setViewport((current) => ({
+        ...current,
+        zoom: Math.max(MIN_ZOOM, current.zoom - 0.1),
+      }));
+    }
+    if (!modifier && event.key === "0") {
+      setViewport({ zoom: 1, panX: 0, panY: 0 });
+    }
     if (furniture.placement === "volume" && event.key === "[") {
       event.preventDefault();
       setActiveLayer((layer) => Math.max(0, layer - 1));
+      setSelection(null);
     }
     if (furniture.placement === "volume" && event.key === "]") {
       event.preventDefault();
       setActiveLayer((layer) => Math.min(furniture.grid.height - 1, layer + 1));
+      setSelection(null);
+    }
+    if ((event.key === "Delete" || event.key === "Backspace") && selection) {
+      event.preventDefault();
+      commitFurniture(
+        eraseFurnitureSelection(furnitureRef.current, selection),
+        "선택 영역의 복셀을 지웠어요.",
+      );
+      return;
     }
     if ((event.key === "Delete" || event.key === "Backspace") && hover) {
       event.preventDefault();
+      beginFurnitureGesture();
       updateCell(hover, "erase");
+      finishFurnitureGesture();
     }
   }
 
   function loadPreset(create: () => FurnitureDefinition): void {
     const next = create();
-    setFurniture(next);
+    commitFurniture(next);
     setActiveLayer(editableLayer(next));
     setTool("paint");
     setHover(null);
-    clearPublishedCode();
+    setSelection(null);
+    setViewport({ zoom: 1, panX: 0, panY: 0 });
     flash(next.name + " 예시를 열었어요.");
   }
 
@@ -387,7 +689,7 @@ export function FurnitureFoundry() {
     if (furniture.resolution === resolution) return;
     const previousResolution = furniture.resolution;
     const next = convertFurnitureResolution(furniture, resolution);
-    setFurniture(next);
+    commitFurniture(next);
     setActiveLayer((layer) => {
       if (next.placement !== "volume") return 0;
       return resolution > previousResolution
@@ -395,11 +697,100 @@ export function FurnitureFoundry() {
         : Math.min(next.grid.height - 1, Math.floor(layer / 2));
     });
     setHover(null);
-    clearPublishedCode();
+    setSelection(null);
     flash(
       resolution === 2
         ? "정밀 조립으로 바꿨어요. 기존 모양은 유지되고 셀이 더 촘촘해졌어요."
         : "기본 조립으로 바꿨어요. 작은 셀은 대표 재료로 합쳐졌어요.",
+    );
+  }
+
+  function applyGridResize(): void {
+    const current = furnitureRef.current;
+    const next = resizeFurnitureGrid(current, gridDraft);
+    const removed = current.voxels.length - next.voxels.length;
+    if (!commitFurniture(
+      next,
+      removed > 0
+        ? `격자를 바꾸고 바깥쪽 ${removed}칸을 잘라냈어요. 실행 취소로 복원할 수 있어요.`
+        : "격자 크기를 바꿨어요.",
+    )) {
+      flash("이미 같은 격자 크기예요.");
+      return;
+    }
+    setSelection(null);
+    setViewport({ zoom: 1, panX: 0, panY: 0 });
+  }
+
+  function applySelectionTransform(
+    result: ReturnType<typeof moveFurnitureSelection>,
+    message: string,
+  ): void {
+    if (result.blocked) {
+      flash("선택 영역이 조립판 바깥으로 나가요.");
+      return;
+    }
+    setSelection(result.selection);
+    if (furnitureRef.current.placement === "volume") {
+      setActiveLayer(result.selection.start.z);
+    }
+    if (!result.changed) {
+      flash("선택 영역에 옮길 복셀이 없어요.");
+      return;
+    }
+    commitFurniture(result.furniture, message);
+  }
+
+  function moveSelection(deltaA: number, deltaB: number): void {
+    if (!selection) return;
+    applySelectionTransform(
+      moveFurnitureSelection(
+        furnitureRef.current,
+        selection,
+        deltaA,
+        deltaB,
+      ),
+      "선택 영역을 한 칸 옮겼어요.",
+    );
+  }
+
+  function duplicateSelection(): void {
+    if (!selection) return;
+    applySelectionTransform(
+      moveFurnitureSelection(furnitureRef.current, selection, 1, 0, true),
+      "선택 영역을 오른쪽으로 한 칸 복제했어요.",
+    );
+  }
+
+  function moveSelectionLayer(deltaZ: number): void {
+    if (!selection) return;
+    applySelectionTransform(
+      moveFurnitureSelectionLayer(
+        furnitureRef.current,
+        selection,
+        deltaZ,
+      ),
+      deltaZ > 0
+        ? "선택 영역을 한 층 올렸어요."
+        : "선택 영역을 한 층 내렸어요.",
+    );
+  }
+
+  function rotateSelection(): void {
+    if (!selection) return;
+    applySelectionTransform(
+      rotateFurnitureSelection(furnitureRef.current, selection),
+      "선택 영역을 시계 방향으로 돌렸어요.",
+    );
+  }
+
+  function mirrorSelection(axis: "a" | "b"): void {
+    if (!selection) return;
+    applySelectionTransform(
+      mirrorFurnitureSelection(furnitureRef.current, selection, axis),
+      axis === "a"
+        ? "선택 영역을 좌우로 반전했어요."
+        : "선택 영역을 앞뒤로 반전했어요.",
     );
   }
 
@@ -441,9 +832,11 @@ export function FurnitureFoundry() {
   function loadCode(): void {
     try {
       const decoded = decodeFurniture(codeInput);
-      setFurniture(decoded);
+      commitFurniture(decoded);
       setActiveLayer(editableLayer(decoded));
       setHover(null);
+      setSelection(null);
+      setViewport({ zoom: 1, panX: 0, panY: 0 });
       const code = encodeFurniture(decoded);
       setCodeInput(code);
       window.history.replaceState(null, "", "#" + code);
@@ -522,6 +915,7 @@ export function FurnitureFoundry() {
   const matchingPresets = FURNITURE_PRESETS.filter(
     (preset) => preset.placement === furniture.placement,
   );
+  const gridLimits = furnitureGridLimits(furniture);
 
   return (
     <main className="shell foundry-shell">
@@ -547,22 +941,70 @@ export function FurnitureFoundry() {
               <p>WORKPIECE</p>
               <h2 id="furniture-title">{furniture.name}</h2>
             </div>
-            <div className="tool-switch" aria-label="그리기 도구">
+            <div className="history-controls" aria-label="편집 기록">
               <button
                 type="button"
-                data-active={tool === "paint"}
-                aria-pressed={tool === "paint"}
-                onClick={() => setTool("paint")}
+                disabled={!canUndo}
+                onClick={undoFurniture}
               >
-                {furniture.placement === "volume" ? "쌓기" : "칠하기"}
+                실행 취소
               </button>
               <button
                 type="button"
-                data-active={tool === "erase"}
-                aria-pressed={tool === "erase"}
-                onClick={() => setTool("erase")}
+                disabled={!canRedo}
+                onClick={redoFurniture}
               >
-                지우기
+                다시 실행
+              </button>
+            </div>
+          </div>
+
+          <div className="foundry-toolbar">
+            <div className="tool-switch" aria-label="편집 도구">
+              {TOOL_LABELS.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  data-active={tool === item.id}
+                  aria-pressed={tool === item.id}
+                  title={`${item.label} (${item.shortcut})`}
+                  onClick={() => setTool(item.id)}
+                >
+                  {item.id === "paint"
+                    ? furniture.placement === "volume" ? "쌓기" : "칠하기"
+                    : item.label}
+                </button>
+              ))}
+            </div>
+            <div className="viewport-controls" aria-label="화면 확대와 위치">
+              <button
+                type="button"
+                aria-label="화면 축소"
+                disabled={viewport.zoom <= MIN_ZOOM}
+                onClick={() => setViewport((current) => ({
+                  ...current,
+                  zoom: Math.max(MIN_ZOOM, current.zoom - 0.1),
+                }))}
+              >
+                축소
+              </button>
+              <output>{Math.round(viewport.zoom * 100)}%</output>
+              <button
+                type="button"
+                aria-label="화면 확대"
+                disabled={viewport.zoom >= MAX_ZOOM}
+                onClick={() => setViewport((current) => ({
+                  ...current,
+                  zoom: Math.min(MAX_ZOOM, current.zoom + 0.1),
+                }))}
+              >
+                확대
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewport({ zoom: 1, panX: 0, panY: 0 })}
+              >
+                맞춤
               </button>
             </div>
           </div>
@@ -579,22 +1021,23 @@ export function FurnitureFoundry() {
             onContextMenu={(event) => event.preventDefault()}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
+            onWheel={handleCanvasWheel}
             onPointerUp={stopDrawing}
             onPointerCancel={stopDrawing}
             onPointerLeave={() => {
               if (!dragToolRef.current) setHover(null);
             }}
             onKeyDown={handleCanvasKeyDown}
+            data-tool={tool}
           />
 
           <div className="foundry-help" id="foundry-canvas-help">
             <p>
-              클릭·드래그로 {furniture.placement === "volume" ? "쌓기" : "칠하기"}
-              {" · "}오른쪽 클릭으로 바로 지우기
+              휠로 확대·축소 · 화면 이동 도구로 드래그 · 오른쪽 클릭으로 바로 지우기
             </p>
             <p>
               {furniture.placement === "volume" ? "키보드 [ ] 층 이동 · " : ""}
-              Delete 선택 칸 지우기
+              Ctrl+Z 실행 취소 · Delete 선택 영역 지우기
             </p>
           </div>
         </section>
@@ -658,7 +1101,10 @@ export function FurnitureFoundry() {
                 min={0}
                 max={furniture.grid.height - 1}
                 value={activeLayer}
-                onChange={(event) => setActiveLayer(Number(event.target.value))}
+                onChange={(event) => {
+                  setActiveLayer(Number(event.target.value));
+                  setSelection(null);
+                }}
               />
               <p className="control-note">현재 층 이하의 복셀만 보여요.</p>
             </section>
@@ -682,6 +1128,128 @@ export function FurnitureFoundry() {
               </p>
             </section>
           )}
+
+          <section>
+            <p className="section-kicker">WORKPIECE SIZE</p>
+            <h2>조립판 크기</h2>
+            <div className="grid-size-fields">
+              <label>
+                <span>가로</span>
+                <input
+                  type="number"
+                  min={gridLimits.width.min}
+                  max={gridLimits.width.max}
+                  value={gridDraft.width}
+                  onChange={(event) => setGridDraft((current) => ({
+                    ...current,
+                    width: Number(event.target.value),
+                  }))}
+                />
+              </label>
+              {furniture.placement !== "wall" ? (
+                <label>
+                  <span>깊이</span>
+                  <input
+                    type="number"
+                    min={gridLimits.depth.min}
+                    max={gridLimits.depth.max}
+                    value={gridDraft.depth}
+                    onChange={(event) => setGridDraft((current) => ({
+                      ...current,
+                      depth: Number(event.target.value),
+                    }))}
+                  />
+                </label>
+              ) : null}
+              {furniture.placement !== "floor" ? (
+                <label>
+                  <span>높이</span>
+                  <input
+                    type="number"
+                    min={gridLimits.height.min}
+                    max={gridLimits.height.max}
+                    value={gridDraft.height}
+                    onChange={(event) => setGridDraft((current) => ({
+                      ...current,
+                      height: Number(event.target.value),
+                    }))}
+                  />
+                </label>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="button secondary grid-size-apply"
+              onClick={applyGridResize}
+            >
+              조립판 크기 적용
+            </button>
+            <p className="control-note">
+              작은 크기로 줄이며 잘린 칸은 실행 취소로 되돌릴 수 있어요.
+            </p>
+          </section>
+
+          <section>
+            <p className="section-kicker">SELECTION</p>
+            <h2>영역 편집</h2>
+            {selection ? (
+              <>
+                <p className="panel-copy">
+                  {selectedCells.length}칸 영역 · 복셀 {selectedVoxelCount}개
+                </p>
+                <div className="selection-nudge" aria-label="선택 영역 이동">
+                  <button type="button" onClick={() => moveSelection(-1, 0)}>
+                    왼쪽
+                  </button>
+                  <button type="button" onClick={() => moveSelection(1, 0)}>
+                    오른쪽
+                  </button>
+                  <button type="button" onClick={() => moveSelection(0, -1)}>
+                    {furniture.placement === "wall" ? "아래" : "뒤"}
+                  </button>
+                  <button type="button" onClick={() => moveSelection(0, 1)}>
+                    {furniture.placement === "wall" ? "위" : "앞"}
+                  </button>
+                  {furniture.placement === "volume" ? (
+                    <>
+                      <button type="button" onClick={() => moveSelectionLayer(-1)}>
+                        한 층 아래
+                      </button>
+                      <button type="button" onClick={() => moveSelectionLayer(1)}>
+                        한 층 위
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+                <div className="selection-actions">
+                  <button type="button" onClick={duplicateSelection}>오른쪽 복제</button>
+                  <button type="button" onClick={rotateSelection}>시계 방향 회전</button>
+                  <button type="button" onClick={() => mirrorSelection("a")}>
+                    좌우 반전
+                  </button>
+                  <button type="button" onClick={() => mirrorSelection("b")}>
+                    {furniture.placement === "wall" ? "상하 반전" : "앞뒤 반전"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => commitFurniture(
+                      eraseFurnitureSelection(furnitureRef.current, selection),
+                      "선택 영역의 복셀을 지웠어요.",
+                    )}
+                  >
+                    선택 영역 지우기
+                  </button>
+                  <button type="button" onClick={() => setSelection(null)}>
+                    선택 해제
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="panel-copy">
+                영역 선택 도구로 현재 편집면을 드래그하면 이동·복제·회전·반전할 수 있어요.
+              </p>
+            )}
+          </section>
 
           <section>
             <p className="section-kicker">ASSEMBLY DETAIL</p>

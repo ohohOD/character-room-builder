@@ -21,6 +21,8 @@ FurnitureDefinition → 조립 셀 정렬 → Canvas2D 아이소메트릭 렌더
 
 가구 데이터는 렌더러와 분리되어 같은 FURN1 코드와 rendererVersion이 같은 결과를 만들 수 있어야 한다. 방 배치기가 가구를 소비할 때도 완성된 FurnitureDefinition을 하나의 오브젝트로 취급한다.
 
+공방의 확대율·화면 이동·활성 도구·선택 영역·실행 취소 기록은 편집 세션의 일시적 상태다. `lib/furniture/editing.ts`의 순수 함수가 격자 크기 변경, 영역 이동·복제·회전·반전, 채우기와 삭제를 FurnitureDefinition 입력에서 결정론적으로 계산하고, React 화면은 결과 스냅샷을 최대 80단계 메모리에만 보관한다. 격자를 줄여 잘린 셀도 실행 취소로 복원할 수 있으며 이 기록은 FURN1과 RoomDocument에 포함하지 않는다.
+
 ### 미디어 내보내기
 
 `FurnitureDefinition → 배치용 표면 메시 → 투명 Canvas → PNG/WebP/스프라이트 시트` 순서를 사용한다. 공방 편집 격자를 캡처하지 않고 Room Composer와 같은 완성 가구 메시 렌더러를 재사용한다. 크기, 보기 방향, 배경, 외곽선·재질 경계, 그림자는 내보내기 옵션이며 FurnitureDefinition을 변경하지 않는다. 다운로드는 사용자 클릭으로만 시작하며 Blob URL은 사용 직후 폐기한다.

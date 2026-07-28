@@ -33,12 +33,22 @@ import {
   type FurnitureSelection,
 } from "../../lib/furniture/editing";
 import {
+  assembleAnimatedWebP,
+  createStoredZip,
+  encodeAnimatedGif,
+  licenseText,
+  makeFurnitureExportMetadata,
+  utf8,
+} from "../../lib/furniture/animated-export";
+import {
   canvasToBlob,
   type FurnitureExportBackground,
   type FurnitureExportRotation,
   type FurnitureExportSize,
   renderFurnitureImage,
+  renderFurnitureEightDirectionSheet,
   renderFurnitureSpriteSheet,
+  renderFurnitureTurntableFrames,
   safeFurnitureFilename,
 } from "../../lib/furniture/export-image";
 import {
@@ -150,6 +160,7 @@ function editableLayer(furniture: FurnitureDefinition): number {
 export function FurnitureFoundry() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const exportCanvasRef = useRef<HTMLCanvasElement>(null);
+  const turntablePreviewRef = useRef<HTMLCanvasElement>(null);
   const dragToolRef = useRef<Tool | null>(null);
   const lastPaintedRef = useRef("");
   const statusTimerRef = useRef<number | null>(null);
@@ -195,6 +206,7 @@ export function FurnitureFoundry() {
     useState<FurnitureExportBackground>("transparent");
   const [exportOutline, setExportOutline] = useState(true);
   const [exportShadow, setExportShadow] = useState(true);
+  const [exportDuration, setExportDuration] = useState(140);
   const [exportStatus, setExportStatus] = useState("");
   const editPlane = editPlaneForView(furniture, editView);
   const selectedCells = useMemo(
@@ -340,6 +352,24 @@ export function FurnitureFoundry() {
     exportSize,
     furniture,
   ]);
+
+  useEffect(() => {
+    const canvas = turntablePreviewRef.current;
+    if (!canvas || furniture.placement === "wall") return;
+    const sheet = renderFurnitureEightDirectionSheet(furniture, {
+      size: 128,
+      background: exportBackground,
+      outline: exportOutline,
+      shadow: exportShadow,
+    });
+    canvas.width = sheet.width;
+    canvas.height = sheet.height;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.imageSmoothingEnabled = false;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(sheet, 0, 0);
+  }, [exportBackground, exportOutline, exportShadow, furniture]);
 
   function flash(message: string): void {
     if (statusTimerRef.current !== null) {
@@ -1029,6 +1059,130 @@ export function FurnitureFoundry() {
     }
   }
 
+  function exportOptions(): Omit<Parameters<typeof renderFurnitureTurntableFrames>[1], "rotation"> {
+    return {
+      size: exportSize,
+      background: exportBackground,
+      outline: exportOutline,
+      shadow: exportShadow,
+    };
+  }
+
+  function framePixels(canvas: HTMLCanvasElement): { data: Uint8ClampedArray } {
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("애니메이션 프레임을 읽지 못했어요.");
+    return { data: new Uint8ClampedArray(
+      context.getImageData(0, 0, canvas.width, canvas.height).data,
+    ) };
+  }
+
+  function blobFromBytes(bytes: Uint8Array, type: string): Blob {
+    const copy = new Uint8Array(bytes);
+    return new Blob([copy.buffer], { type });
+  }
+
+  async function exportEightDirectionSheet(): Promise<void> {
+    if (furniture.voxels.length === 0 || furniture.placement === "wall") return;
+    try {
+      const sheet = renderFurnitureEightDirectionSheet(furniture, exportOptions());
+      const blob = await canvasToBlob(sheet, "image/png");
+      downloadBlob(blob, `${safeFurnitureFilename(furniture.name)}-8dir.png`);
+      setExportStatus(`${exportSize * 8} × ${exportSize} 8방향 PNG 시트를 저장했어요.`);
+    } catch (error) {
+      setExportStatus(error instanceof Error ? error.message : "8방향 시트를 만들지 못했어요.");
+    }
+  }
+
+  async function exportAnimatedGif(): Promise<void> {
+    if (furniture.voxels.length === 0 || furniture.placement === "wall") return;
+    try {
+      const frames = renderFurnitureTurntableFrames(furniture, exportOptions());
+      const bytes = encodeAnimatedGif(
+        frames.map(framePixels),
+        exportSize,
+        exportSize,
+        exportDuration,
+      );
+      downloadBlob(
+        blobFromBytes(bytes, "image/gif"),
+        `${safeFurnitureFilename(furniture.name)}-turntable.gif`,
+      );
+      setExportStatus(`8방향 회전 GIF를 저장했어요. 프레임당 ${exportDuration}ms예요.`);
+    } catch (error) {
+      setExportStatus(error instanceof Error ? error.message : "GIF를 만들지 못했어요.");
+    }
+  }
+
+  async function exportAnimatedWebP(): Promise<void> {
+    if (furniture.voxels.length === 0 || furniture.placement === "wall") return;
+    try {
+      const frames = renderFurnitureTurntableFrames(furniture, exportOptions());
+      const encodedFrames = await Promise.all(frames.map(async (frame) => {
+        const blob = await canvasToBlob(frame, "image/webp");
+        if (blob.type !== "image/webp") {
+          throw new Error("이 브라우저는 WebP 내보내기를 지원하지 않아요.");
+        }
+        return new Uint8Array(await blob.arrayBuffer());
+      }));
+      const bytes = assembleAnimatedWebP(
+        encodedFrames,
+        exportSize,
+        exportSize,
+        exportDuration,
+      );
+      downloadBlob(
+        blobFromBytes(bytes, "image/webp"),
+        `${safeFurnitureFilename(furniture.name)}-turntable.webp`,
+      );
+      setExportStatus(`8방향 애니메이션 WebP를 저장했어요. 프레임당 ${exportDuration}ms예요.`);
+    } catch (error) {
+      setExportStatus(error instanceof Error ? error.message : "애니메이션 WebP를 만들지 못했어요.");
+    }
+  }
+
+  async function exportBundle(): Promise<void> {
+    if (furniture.voxels.length === 0) return;
+    try {
+      const base = safeFurnitureFilename(furniture.name);
+      const files: Array<{ name: string; data: Uint8Array }> = [];
+      let directions: number[];
+      if (furniture.placement === "wall") {
+        const frame = document.createElement("canvas");
+        renderFurnitureImage(frame, furniture, {
+          ...exportOptions(),
+          rotation: exportRotation,
+        });
+        const blob = await canvasToBlob(frame, "image/png");
+        files.push({ name: `${base}.png`, data: new Uint8Array(await blob.arrayBuffer()) });
+        directions = [exportRotation * 90];
+      } else {
+        const sheet = renderFurnitureEightDirectionSheet(furniture, exportOptions());
+        const blob = await canvasToBlob(sheet, "image/png");
+        files.push({
+          name: `${base}-8dir.png`,
+          data: new Uint8Array(await blob.arrayBuffer()),
+        });
+        directions = [0, 45, 90, 135, 180, 225, 270, 315];
+      }
+      const metadata = makeFurnitureExportMetadata(
+        furniture,
+        exportSize,
+        exportDuration,
+        directions,
+      );
+      files.push(
+        { name: `${base}.furn1.txt`, data: utf8(encodeFurniture(furniture) + "\n") },
+        { name: "metadata.json", data: utf8(JSON.stringify(metadata, null, 2) + "\n") },
+        { name: "LICENSE.txt", data: utf8(licenseText(furniture)) },
+      );
+      const zip = createStoredZip(files);
+      downloadBlob(blobFromBytes(zip, "application/zip"), `${base}-export.zip`);
+      setExportStatus("이미지·FURN1·metadata.json·LICENSE.txt 묶음을 저장했어요.");
+    } catch (error) {
+      setExportStatus(error instanceof Error ? error.message : "다운로드 묶음을 만들지 못했어요.");
+    }
+  }
+
   const placementCopy = PLACEMENT_LABELS[furniture.placement];
   const matchingPresets = FURNITURE_PRESETS.filter(
     (preset) => preset.placement === furniture.placement,
@@ -1689,6 +1843,16 @@ export function FurnitureFoundry() {
                 ? "투명 배경"
                 : "웜 페이퍼"}
             </p>
+            {furniture.placement !== "wall" ? (
+              <div className="turntable-preview">
+                <canvas
+                  ref={turntablePreviewRef}
+                  role="img"
+                  aria-label={`${furniture.name} 8방향 회전 미리보기`}
+                />
+                <p>45° 간격 8방향 · GIF·WebP와 같은 프레임</p>
+              </div>
+            ) : null}
           </div>
 
           <div className="export-controls">
@@ -1717,6 +1881,21 @@ export function FurnitureFoundry() {
                 <option value="transparent">투명</option>
                 <option value="paper">웜 페이퍼</option>
               </select>
+            </div>
+
+            <div className="export-control-row">
+              <label htmlFor="export-duration">프레임 시간</label>
+              <input
+                id="export-duration"
+                type="number"
+                min={60}
+                max={1000}
+                step={10}
+                value={exportDuration}
+                onChange={(event) => setExportDuration(
+                  Math.max(60, Math.min(1000, Number(event.target.value))),
+                )}
+              />
             </div>
 
             <fieldset className="export-rotation-fieldset">
@@ -1784,10 +1963,49 @@ export function FurnitureFoundry() {
               >
                 4방향 시트 PNG
               </button>
+              <button
+                type="button"
+                className="button secondary"
+                disabled={
+                  furniture.voxels.length === 0 || furniture.placement === "wall"
+                }
+                onClick={() => void exportEightDirectionSheet()}
+              >
+                8방향 시트 PNG
+              </button>
+              <button
+                type="button"
+                className="button secondary"
+                disabled={
+                  furniture.voxels.length === 0 || furniture.placement === "wall"
+                }
+                onClick={() => void exportAnimatedGif()}
+              >
+                회전 GIF
+              </button>
+              <button
+                type="button"
+                className="button secondary"
+                disabled={
+                  furniture.voxels.length === 0 || furniture.placement === "wall"
+                }
+                onClick={() => void exportAnimatedWebP()}
+              >
+                회전 WebP
+              </button>
+              <button
+                type="button"
+                className="button primary"
+                disabled={furniture.voxels.length === 0}
+                onClick={() => void exportBundle()}
+              >
+                제작 묶음 ZIP
+              </button>
             </div>
             <p className="control-note">
-              4방향 시트는 입체·바닥 가구를 방향별 한 프레임씩 가로로 배치합니다.
-              벽 소품은 단일 PNG·WebP로 내보냅니다.
+              8방향은 45° 간격의 실제 복셀 시점을 사용합니다. ZIP에는 이미지,
+              FURN1, 프레임·바닥 기준점 JSON과 LICENSE가 함께 들어갑니다.
+              벽 소품은 단일 이미지 묶음으로 내보냅니다.
             </p>
             <p className="status" aria-live="polite">{exportStatus}</p>
           </div>

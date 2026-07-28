@@ -2,15 +2,17 @@ import { PALETTES } from "../room/sample-room";
 import type { PlacedFurnitureObject } from "../room/types";
 import { drawPlacedFurniture } from "../renderer/draw-room";
 import { getFurnitureRenderGeometry } from "./placement";
+import { FURNITURE_MATERIALS } from "./presets";
 import type { FurnitureDefinition } from "./types";
 
 type Point = { x: number; y: number };
 
 const EXPORT_SUPERSAMPLE = 2;
 
-export type FurnitureExportSize = 256 | 512 | 1024;
+export type FurnitureExportSize = 128 | 256 | 512 | 1024;
 export type FurnitureExportBackground = "transparent" | "paper";
 export type FurnitureExportRotation = PlacedFurnitureObject["rotation"];
+export type FurnitureTurntableDirection = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 export interface FurnitureImageExportOptions {
   size: FurnitureExportSize;
@@ -25,6 +27,22 @@ function rawProject(x: number, y: number, z: number): Point {
     x: x - y,
     y: (x + y) * 0.5 - z,
   };
+}
+
+function parseColor(color: string): [number, number, number] {
+  const value = color.replace("#", "");
+  return [
+    Number.parseInt(value.slice(0, 2), 16),
+    Number.parseInt(value.slice(2, 4), 16),
+    Number.parseInt(value.slice(4, 6), 16),
+  ];
+}
+
+function shadeColor(color: string, amount: number): string {
+  const [red, green, blue] = parseColor(color);
+  const target = amount < 0 ? 48 : 255;
+  const strength = Math.abs(amount);
+  return `rgb(${Math.round(red + (target - red) * strength)}, ${Math.round(green + (target - green) * strength)}, ${Math.round(blue + (target - blue) * strength)})`;
 }
 
 function furnitureBounds(
@@ -213,6 +231,199 @@ export function renderFurnitureImage(
   }
   context.drawImage(objectLayer, 0, 0);
   finish();
+}
+
+type TurntablePoint = { x: number; y: number; z: number };
+type TurntableFace = {
+  points: TurntablePoint[];
+  normal: TurntablePoint;
+  color: string;
+  depth: number;
+};
+
+function turntableVoxelKey(x: number, y: number, z: number): string {
+  return `${x}:${y}:${z}`;
+}
+
+export function renderFurnitureTurntableFrame(
+  canvas: HTMLCanvasElement,
+  furniture: FurnitureDefinition,
+  options: Omit<FurnitureImageExportOptions, "rotation">,
+  direction: FurnitureTurntableDirection,
+): void {
+  canvas.width = options.size;
+  canvas.height = options.size;
+  const outputContext = canvas.getContext("2d");
+  if (!outputContext) return;
+  const renderSize = options.size * EXPORT_SUPERSAMPLE;
+  const surface = document.createElement("canvas");
+  surface.width = renderSize;
+  surface.height = renderSize;
+  const context = surface.getContext("2d");
+  if (!context) return;
+  context.clearRect(0, 0, renderSize, renderSize);
+  if (options.background === "paper") {
+    context.fillStyle = "#f3efe6";
+    context.fillRect(0, 0, renderSize, renderSize);
+  }
+  if (furniture.voxels.length === 0) return;
+
+  const xs = furniture.voxels.map((voxel) => voxel.x);
+  const ys = furniture.voxels.map((voxel) => voxel.y);
+  const zs = furniture.voxels.map((voxel) => voxel.z);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const minZ = Math.min(...zs);
+  const width = Math.max(...xs) - minX + 1;
+  const depth = Math.max(...ys) - minY + 1;
+  const angle = direction * Math.PI / 4;
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  const centerX = width * 0.5;
+  const centerY = depth * 0.5;
+  const rotate = (point: TurntablePoint): TurntablePoint => {
+    const x = point.x - centerX;
+    const y = point.y - centerY;
+    return {
+      x: x * cosine - y * sine,
+      y: x * sine + y * cosine,
+      z: point.z,
+    };
+  };
+  const rotateNormal = (normal: TurntablePoint): TurntablePoint => ({
+    x: normal.x * cosine - normal.y * sine,
+    y: normal.x * sine + normal.y * cosine,
+    z: normal.z,
+  });
+  const occupied = new Set(
+    furniture.voxels.map((voxel) => turntableVoxelKey(voxel.x, voxel.y, voxel.z)),
+  );
+  const faces: TurntableFace[] = [];
+  const definitions = [
+    { delta: [0, 0, 1], normal: [0, 0, 1], corners: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]] },
+    { delta: [1, 0, 0], normal: [1, 0, 0], corners: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]] },
+    { delta: [-1, 0, 0], normal: [-1, 0, 0], corners: [[0, 1, 0], [0, 0, 0], [0, 0, 1], [0, 1, 1]] },
+    { delta: [0, 1, 0], normal: [0, 1, 0], corners: [[1, 1, 0], [0, 1, 0], [0, 1, 1], [1, 1, 1]] },
+    { delta: [0, -1, 0], normal: [0, -1, 0], corners: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]] },
+  ] as const;
+  furniture.voxels.forEach((voxel) => {
+    const x = voxel.x - minX;
+    const y = voxel.y - minY;
+    const z = voxel.z - minZ;
+    const baseColor = voxel.color ?? FURNITURE_MATERIALS[voxel.material].color;
+    definitions.forEach((definition) => {
+      if (occupied.has(turntableVoxelKey(
+        voxel.x + definition.delta[0],
+        voxel.y + definition.delta[1],
+        voxel.z + definition.delta[2],
+      ))) return;
+      const normal = rotateNormal({
+        x: definition.normal[0],
+        y: definition.normal[1],
+        z: definition.normal[2],
+      });
+      if (normal.x + normal.y + normal.z <= 0.0001) return;
+      const cellHeight = furniture.placement === "floor" ? 0.16 : 1;
+      const points = definition.corners.map((corner) => rotate({
+        x: x + corner[0],
+        y: y + corner[1],
+        z: (z + corner[2] * cellHeight),
+      }));
+      const shade = normal.z > 0.5
+        ? 0.12
+        : Math.abs(normal.x) > Math.abs(normal.y) ? -0.2 : -0.3;
+      faces.push({
+        points,
+        normal,
+        color: shadeColor(baseColor, shade),
+        depth: points.reduce((sum, point) => sum + point.x + point.y + point.z, 0) /
+          points.length,
+      });
+    });
+  });
+  const projected = faces.flatMap((face) => face.points.map((point) => rawProject(
+    point.x,
+    point.y,
+    point.z,
+  )));
+  const minProjectedX = Math.min(...projected.map((point) => point.x));
+  const maxProjectedX = Math.max(...projected.map((point) => point.x));
+  const minProjectedY = Math.min(...projected.map((point) => point.y));
+  const maxProjectedY = Math.max(...projected.map((point) => point.y));
+  const padding = renderSize * 0.11;
+  const unit = Math.min(
+    (renderSize - padding * 2) / Math.max(1, maxProjectedX - minProjectedX),
+    (renderSize - padding * 2) / Math.max(1, maxProjectedY - minProjectedY),
+  );
+  const contentWidth = (maxProjectedX - minProjectedX) * unit;
+  const contentHeight = (maxProjectedY - minProjectedY) * unit;
+  const project = (point: TurntablePoint): Point => {
+    const raw = rawProject(point.x, point.y, point.z);
+    return {
+      x: (renderSize - contentWidth) * 0.5 + (raw.x - minProjectedX) * unit,
+      y: (renderSize - contentHeight) * 0.5 + (raw.y - minProjectedY) * unit,
+    };
+  };
+  if (options.shadow) {
+    context.save();
+    context.fillStyle = "rgba(48, 44, 39, 0.12)";
+    context.shadowColor = "rgba(48, 44, 39, 0.2)";
+    context.shadowBlur = renderSize * 0.018;
+    context.beginPath();
+    context.ellipse(
+      renderSize * 0.5,
+      renderSize * 0.72,
+      Math.max(renderSize * 0.08, contentWidth * 0.34),
+      Math.max(renderSize * 0.035, contentHeight * 0.08),
+      0,
+      0,
+      Math.PI * 2,
+    );
+    context.fill();
+    context.restore();
+  }
+  faces.sort((first, second) => first.depth - second.depth).forEach((face) => {
+    const points = face.points.map(project);
+    context.beginPath();
+    context.moveTo(points[0].x, points[0].y);
+    points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+    context.closePath();
+    context.fillStyle = face.color;
+    context.fill();
+  });
+  if (options.outline) applyVisiblePixelBoundaries(surface);
+  outputContext.clearRect(0, 0, options.size, options.size);
+  outputContext.imageSmoothingEnabled = true;
+  outputContext.imageSmoothingQuality = "high";
+  outputContext.drawImage(surface, 0, 0, options.size, options.size);
+}
+
+export function renderFurnitureTurntableFrames(
+  furniture: FurnitureDefinition,
+  options: Omit<FurnitureImageExportOptions, "rotation">,
+): HTMLCanvasElement[] {
+  return ([0, 1, 2, 3, 4, 5, 6, 7] as FurnitureTurntableDirection[]).map(
+    (direction) => {
+      const frame = document.createElement("canvas");
+      renderFurnitureTurntableFrame(frame, furniture, options, direction);
+      return frame;
+    },
+  );
+}
+
+export function renderFurnitureEightDirectionSheet(
+  furniture: FurnitureDefinition,
+  options: Omit<FurnitureImageExportOptions, "rotation">,
+): HTMLCanvasElement {
+  const frames = renderFurnitureTurntableFrames(furniture, options);
+  const sheet = document.createElement("canvas");
+  sheet.width = options.size * frames.length;
+  sheet.height = options.size;
+  const context = sheet.getContext("2d");
+  if (!context) return sheet;
+  context.imageSmoothingEnabled = false;
+  frames.forEach((frame, index) => context.drawImage(frame, index * options.size, 0));
+  return sheet;
 }
 
 export function renderFurnitureSpriteSheet(

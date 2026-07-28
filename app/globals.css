@@ -1296,6 +1296,23 @@ canvas:focus-visible {
   letter-spacing: 0.04em;
 }
 
+.export-preview .turntable-preview {
+  width: min(100%, 720px);
+  margin-top: 26px;
+  text-align: center;
+}
+
+.export-preview .turntable-preview canvas {
+  width: 100%;
+  max-width: none;
+  aspect-ratio: 8 / 1;
+  image-rendering: pixelated;
+}
+
+.export-preview .turntable-preview p {
+  margin-top: 8px;
+}
+
 .export-controls {
   padding: 24px 22px;
   border-left: 1px solid var(--line);
@@ -1317,7 +1334,8 @@ canvas:focus-visible {
   letter-spacing: 0.04em;
 }
 
-.export-control-row select {
+.export-control-row select,
+.export-control-row input {
   width: 100%;
   min-height: 44px;
   padding: 8px 10px;

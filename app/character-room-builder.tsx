@@ -1,51 +1,61 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { drawRoom } from "../lib/renderer/draw-room";
-import { makeSampleRoom, PALETTES } from "../lib/room/sample-room";
+import {
+  makeSampleRoom,
+  PALETTES,
+} from "../lib/room/sample-room";
+import type { PaletteId } from "../lib/room/types";
+
+function encodeRoomCode(seed: string, palette: PaletteId): string {
+  const bytes = new TextEncoder().encode(JSON.stringify({ seed, palette }));
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return "ROOM1." + btoa(binary).replaceAll("=", "");
+}
 
 export function CharacterRoomBuilder() {
-  const ref = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [seed, setSeed] = useState("sage-attic-01");
-  const [palette, setPalette] = useState<keyof typeof PALETTES>("sage");
+  const [palette, setPalette] = useState<PaletteId>("sage");
   const [status, setStatus] = useState("");
 
+  const room = useMemo(
+    () => makeSampleRoom(seed, palette),
+    [seed, palette],
+  );
+  const paletteMeta = PALETTES[palette];
+
   useEffect(() => {
-    const canvas = ref.current;
+    const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const render = () => drawRoom(canvas, makeSampleRoom(seed, palette));
+    const render = () => drawRoom(canvas, room);
     render();
 
     const observer = new ResizeObserver(render);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [seed, palette]);
-
-  const roomCode =
-    "ROOM1." +
-    btoa(
-      unescape(
-        encodeURIComponent(
-          JSON.stringify({
-            seed,
-            palette,
-          }),
-        ),
-      ),
-    ).replaceAll("=", "");
+  }, [room]);
 
   async function copyRoomCode() {
-    await navigator.clipboard.writeText(roomCode);
-    setStatus("방 코드를 복사했어요.");
-    setTimeout(() => setStatus(""), 1800);
+    try {
+      await navigator.clipboard.writeText(encodeRoomCode(seed, palette));
+      setStatus("방 코드를 복사했어요.");
+    } catch {
+      setStatus("복사하지 못했어요. 브라우저의 클립보드 권한을 확인해주세요.");
+    }
+    window.setTimeout(() => setStatus(""), 2400);
   }
 
   return (
     <main className="shell">
       <header className="masthead">
         <div>
-          <p className="eyebrow">CHARACTER ROOM BUILDER · PROTOTYPE 01</p>
+          <p className="eyebrow">PROCEDURAL CANVAS ROOM · SCENE 01</p>
           <h1>Character Room Builder</h1>
         </div>
         <p>
@@ -55,55 +65,91 @@ export function CharacterRoomBuilder() {
       </header>
 
       <div className="workspace">
-        <section className="stage">
-          <canvas ref={ref} />
+        <section className="stage" aria-labelledby="room-title">
+          <canvas
+            ref={canvasRef}
+            role="img"
+            aria-label={paletteMeta.name + " 스타일의 아이소메트릭 캐릭터 방"}
+          />
+
+          <div className="stage-heading">
+            <p>ROOM 01 · PAPER ATTIC</p>
+            <h2 id="room-title">{paletteMeta.name}</h2>
+            <span>{paletteMeta.story}</span>
+          </div>
+
           <p className="stage-label">
-            CANVAS2D · deterministic seed · no generated imagery
+            Canvas2D · seed {seed} · no generated imagery
           </p>
         </section>
 
         <aside className="panel">
-          <section>
-            <h2>첫 번째 방</h2>
+          <section className="intro-section">
+            <p className="section-kicker">VISUAL PROOF</p>
+            <h2>첫 번째 대표 방</h2>
             <p>
-              기획의 미술 방향과 데이터 경계를 잊지 않기 위한 실행 가능한
-              표본입니다.
+              빈 편집기보다 먼저 보여줄 장면입니다. 모든 가구와 빛은
+              RoomDocument와 Canvas 코드에서 다시 그릴 수 있습니다.
             </p>
+          </section>
+
+          <section>
+            <fieldset className="palette-fieldset">
+              <legend>스타일 팩</legend>
+              <div className="palette-list">
+                {Object.entries(PALETTES).map(([key, value]) => {
+                  const paletteKey = key as PaletteId;
+                  return (
+                    <button
+                      type="button"
+                      className="palette-option"
+                      data-active={palette === paletteKey}
+                      key={key}
+                      role="radio"
+                      aria-checked={palette === paletteKey}
+                      onClick={() => setPalette(paletteKey)}
+                    >
+                      <span className="palette-swatch" aria-hidden="true">
+                        <i style={{ backgroundColor: value.wall }} />
+                        <i style={{ backgroundColor: value.cloth }} />
+                        <i style={{ backgroundColor: value.wood }} />
+                      </span>
+                      <span>
+                        <strong>{value.name}</strong>
+                        <small>{value.story}</small>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
 
             <div className="field">
               <label htmlFor="room-seed">방 시드</label>
               <input
                 id="room-seed"
                 value={seed}
+                spellCheck={false}
                 onChange={(event) => setSeed(event.target.value)}
               />
-            </div>
-
-            <div className="field">
-              <label htmlFor="room-palette">팔레트</label>
-              <select
-                id="room-palette"
-                value={palette}
-                onChange={(event) =>
-                  setPalette(event.target.value as keyof typeof PALETTES)
-                }
-              >
-                {Object.entries(PALETTES).map(([key, value]) => (
-                  <option key={key} value={key}>
-                    {value.name}
-                  </option>
-                ))}
-              </select>
+              <small>같은 시드와 스타일 팩은 같은 방을 그립니다.</small>
             </div>
 
             <div className="actions">
               <button
+                type="button"
                 className="button secondary"
-                onClick={() => setSeed("room-" + Date.now().toString(36))}
+                onClick={() =>
+                  setSeed("room-" + Date.now().toString(36))
+                }
               >
-                새 시드
+                배치 다시 짓기
               </button>
-              <button className="button" onClick={copyRoomCode}>
+              <button
+                type="button"
+                className="button primary"
+                onClick={copyRoomCode}
+              >
                 방 코드 복사
               </button>
             </div>
@@ -112,15 +158,26 @@ export function CharacterRoomBuilder() {
             </p>
           </section>
 
-          <section>
-            <h2>지켜야 할 것</h2>
-            <ul className="principles">
-              <li>생성형 이미지 모델을 사용하지 않는다</li>
-              <li>동일한 데이터는 동일한 방을 그린다</li>
-              <li>계정 권한 없는 로컬 모드가 기본이다</li>
-              <li>Google Sheets 연동은 선택적 어댑터다</li>
-              <li>스타일 팩의 작가·라이선스를 보존한다</li>
-            </ul>
+          <section className="spec-section">
+            <h2>이 장면의 출처</h2>
+            <dl className="spec-list">
+              <div>
+                <dt>오브젝트</dt>
+                <dd>{room.objects.length}개</dd>
+              </div>
+              <div>
+                <dt>스타일 팩</dt>
+                <dd>{room.provenance.stylePackVersion}</dd>
+              </div>
+              <div>
+                <dt>렌더러</dt>
+                <dd>Canvas2D v{room.rendererVersion}</dd>
+              </div>
+              <div>
+                <dt>생성형 이미지</dt>
+                <dd>사용하지 않음</dd>
+              </div>
+            </dl>
           </section>
         </aside>
       </div>

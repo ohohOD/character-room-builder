@@ -22,10 +22,11 @@
 - [방 데이터와 시트 초안](docs/DATA-MODEL.md)
 - [오픈소스 조사 메모](docs/RESEARCH-NOTES.md)
 - [AI 작업 투명성](docs/AI-ASSISTANCE.md)
+- [디자인 락](STYLESEED.md)
 
 ## 현재 범위
 
-Canvas2D 아이소메트릭 표본, 결정론적 시드, 팔레트 변주, 임시 방 코드, RoomDocument 타입만 포함한다. 편집기와 Google 연동은 아직 구현하지 않는다.
+Canvas2D 아이소메트릭 대표 방, 결정론적 시드, 세 가지 스타일 팩, 임시 방 코드, RoomDocument 기반 가구 렌더링을 포함한다. 편집기와 Google 연동은 아직 구현하지 않는다.
 
 ## 라이선스
 

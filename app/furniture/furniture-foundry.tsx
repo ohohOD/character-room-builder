@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { FurnitureImageImporter } from "./image-importer";
 import {
   type KeyboardEvent,
   type PointerEvent,
@@ -730,6 +731,22 @@ export function FurnitureFoundry() {
     setSelection(null);
     setViewport({ zoom: 1, panX: 0, panY: 0 });
     flash(next.name + " 예시를 열었어요.");
+  }
+
+  function loadImportedFurniture(next: FurnitureDefinition): void {
+    if (!commitFurniture(next)) return;
+    const view: FurnitureView = next.placement === "wall"
+      ? "front"
+      : next.placement === "floor"
+        ? "top"
+        : "isometric";
+    setEditView(view);
+    setActiveLayer(next.placement === "volume" ? editableLayer(next) : 0);
+    setTool("paint");
+    setHover(null);
+    setSelection(null);
+    setViewport({ zoom: 1, panX: 0, panY: 0 });
+    flash(`${next.name} 변환 결과를 열었어요.`);
   }
 
   function changeResolution(resolution: FurnitureResolution): void {
@@ -1640,6 +1657,13 @@ export function FurnitureFoundry() {
           </section>
         </aside>
       </div>
+
+      <FurnitureImageImporter
+        selectedMaterial={selectedMaterial}
+        license={furniture.provenance.license}
+        credit={furniture.provenance.credit}
+        onApply={loadImportedFurniture}
+      />
 
       <section className="export-studio" aria-labelledby="export-title">
         <div className="export-heading">

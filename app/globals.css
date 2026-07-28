@@ -1046,12 +1046,199 @@ canvas:focus-visible {
   font-size: 10px;
 }
 
+.image-import-section,
 .export-studio {
   margin-top: 30px;
   overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--surface);
+}
+
+.image-import-section {
+  padding: 20px 22px 22px;
+}
+
+.image-import-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.image-import-heading h2 {
+  margin: 3px 0 0;
+  font: 500 clamp(22px, 2.4vw, 32px) / 1.15 Georgia, "Times New Roman", serif;
+}
+
+.image-file-button {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.image-file-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.image-import-section > .panel-copy {
+  max-width: 760px;
+  margin-top: 12px;
+}
+
+.image-import-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
+  gap: 22px;
+  margin-top: 18px;
+}
+
+.pixel-preview-wrap {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.pixel-preview-canvas {
+  display: block;
+  width: 100%;
+  height: 360px;
+  image-rendering: pixelated;
+  background: #e8e0d3;
+}
+
+.pixel-preview-wrap p {
+  margin: 9px 0 0;
+  color: var(--faint);
+  font: 9px / 1.4 "Cascadia Code", Consolas, monospace;
+  text-align: center;
+}
+
+.image-import-controls {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.image-import-controls fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.image-import-controls legend,
+.image-number-grid span {
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.image-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+
+.image-mode-switch button {
+  min-height: 52px;
+  padding: 7px 8px;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.image-mode-switch button + button {
+  border-left: 1px solid var(--line-strong);
+}
+
+.image-mode-switch button[data-active="true"] {
+  color: var(--sage);
+  background: var(--sage-soft);
+}
+
+.image-number-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.image-number-grid label {
+  display: grid;
+}
+
+.image-number-grid input,
+.image-number-grid select {
+  min-width: 0;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.pixel-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.pixel-palette span {
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(48, 44, 39, 0.32);
+  border-radius: 2px;
+}
+
+.visual-hull-lab {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.9fr) minmax(0, 1.2fr);
+  gap: 14px 22px;
+  align-items: end;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 3px double var(--line-strong);
+}
+
+.visual-hull-lab h3 {
+  margin: 3px 0 8px;
+  font: 500 21px / 1.2 Georgia, "Times New Roman", serif;
+}
+
+.hull-file-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.hull-file-grid .image-file-button {
+  min-width: 0;
+  padding-inline: 8px;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hull-size-grid {
+  grid-column: 2;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.visual-hull-lab > .button.primary,
+.visual-hull-lab > .control-note {
+  grid-column: 2;
 }
 
 .export-heading {
@@ -1274,6 +1461,20 @@ canvas:focus-visible {
 
   .export-workspace {
     grid-template-columns: minmax(0, 1fr) 330px;
+  }
+
+  .image-import-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .visual-hull-lab {
+    grid-template-columns: 1fr;
+  }
+
+  .hull-size-grid,
+  .visual-hull-lab > .button.primary,
+  .visual-hull-lab > .control-note {
+    grid-column: 1;
   }
 
   .intro-section {

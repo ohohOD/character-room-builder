@@ -30,7 +30,9 @@ FURN1 코드는 정규화한 UTF-8 JSON을 URL-safe Base64로 인코딩하고 FN
 
 ## 픽셀 표면과 다음 스키마
 
-이미지 도트 변환 결과를 수천 개의 개별 RGB 복셀로만 저장하면 FURN1 크기 제한을 빠르게 소모한다. 다음 스키마는 `palette`와 팔레트 인덱스 기반 `pixelSurfaces`를 FurnitureDefinition 안의 선택적 표면 데이터로 두고 반복 구간을 압축하는 방향을 검토한다. 기존 voxel geometry와 분리하되 Room Composer는 둘을 포함한 FurnitureDefinition 전체를 계속 하나의 오브젝트로 소비한다.
+현재 이미지 도트 변환은 메모리의 양자화 결과를 표면색이 있는 기존 FurnitureVoxel로 명시적으로 바꾼다. 따라서 벽·바닥 패널, 밝기·알파 부조와 삼면 실루엣 교집합도 별도 원본이나 EXIF 없이 기존 FURN1 검증·라이선스·9,600셀 상한을 그대로 따른다. 이미지 원본과 변환 설정은 정본에 포함되지 않는다.
+
+향후 이 상한을 넘는 고밀도 표면이 필요하면 `palette`와 팔레트 인덱스 기반 `pixelSurfaces`를 FurnitureDefinition 안의 선택적 표면 데이터로 두고 반복 구간을 압축하는 다음 스키마를 검토한다. 기존 voxel geometry와 분리하되 Room Composer는 둘을 포함한 FurnitureDefinition 전체를 계속 하나의 오브젝트로 소비한다.
 
 ## 방의 커스텀 가구
 

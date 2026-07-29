@@ -5,7 +5,6 @@ import { FurnitureImageImporter } from "./image-importer";
 import {
   type KeyboardEvent,
   type PointerEvent,
-  type WheelEvent,
   useEffect,
   useMemo,
   useRef,
@@ -301,6 +300,24 @@ export function FurnitureFoundry() {
     },
     [],
   );
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // React의 위임 wheel 리스너는 passive일 수 있어 네이티브 non-passive 리스너를 쓴다.
+    const zoomWithWheel = (event: globalThis.WheelEvent) => {
+      event.preventDefault();
+      const step = event.deltaY < 0 ? 0.1 : -0.1;
+      setViewport((current) => ({
+        ...current,
+        zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, current.zoom + step)),
+      }));
+    };
+
+    canvas.addEventListener("wheel", zoomWithWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", zoomWithWheel);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -678,15 +695,6 @@ export function FurnitureFoundry() {
     dragToolRef.current = null;
     panStartRef.current = null;
     lastPaintedRef.current = "";
-  }
-
-  function handleCanvasWheel(event: WheelEvent<HTMLCanvasElement>): void {
-    event.preventDefault();
-    const step = event.deltaY < 0 ? 0.1 : -0.1;
-    setViewport((current) => ({
-      ...current,
-      zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, current.zoom + step)),
-    }));
   }
 
   function handleCanvasKeyDown(event: KeyboardEvent<HTMLCanvasElement>): void {
@@ -1201,11 +1209,11 @@ export function FurnitureFoundry() {
       <header className="masthead">
         <div>
           <nav className="product-nav" aria-label="프로젝트 화면">
-            <Link href="/" aria-current="page">가구 공방</Link>
+            <Link href="/" aria-current="page">복셀 가구 에디터</Link>
             <Link href="/room">방 배치</Link>
           </nav>
           <p className="eyebrow">FURNITURE FOUNDRY · FURN1</p>
-          <h1>아이소메트릭 가구 공방</h1>
+          <h1>복셀 가구 에디터</h1>
         </div>
         <p>
           입체 가구를 쌓거나 바닥과 벽의 조립면을 칠합니다. 편집 가능한 FURN1과
@@ -1323,7 +1331,6 @@ export function FurnitureFoundry() {
             onContextMenu={(event) => event.preventDefault()}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
-            onWheel={handleCanvasWheel}
             onPointerUp={stopDrawing}
             onPointerCancel={stopDrawing}
             onPointerLeave={() => {

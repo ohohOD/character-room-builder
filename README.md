@@ -1,4 +1,4 @@
-# Character Room Builder
+# Character Room Builder · 복셀 가구 에디터
 
 생성형 이미지 없이, 공개된 조형 규칙과 HTML5 Canvas 코드로 아이소메트릭 복셀 가구를 만들고 어디서든 쓸 수 있게 내보내는 로컬 제작 도구.
 

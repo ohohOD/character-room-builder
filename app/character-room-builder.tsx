@@ -296,7 +296,7 @@ export function CharacterRoomBuilder() {
       <header className="masthead">
         <div>
           <nav className="product-nav" aria-label="프로젝트 화면">
-            <Link href="/">가구 공방</Link>
+            <Link href="/">복셀 가구 에디터</Link>
             <Link href="/room" aria-current="page">방 배치</Link>
           </nav>
           <p className="eyebrow">PROCEDURAL CANVAS ROOM · SCENE 01</p>

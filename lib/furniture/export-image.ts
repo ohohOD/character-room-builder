@@ -238,11 +238,32 @@ type TurntableFace = {
   points: TurntablePoint[];
   normal: TurntablePoint;
   color: string;
+  styleKey: string;
   depth: number;
+};
+
+type TurntableEdgeInfo = {
+  count: number;
+  normals: Set<string>;
+  styles: Set<string>;
 };
 
 function turntableVoxelKey(x: number, y: number, z: number): string {
   return `${x}:${y}:${z}`;
+}
+
+function turntablePointKey(point: TurntablePoint): string {
+  return [point.x, point.y, point.z]
+    .map((value) => Math.round(value * 1_000_000) / 1_000_000)
+    .join(":");
+}
+
+function turntableEdgeKey(first: TurntablePoint, second: TurntablePoint): string {
+  return [turntablePointKey(first), turntablePointKey(second)].sort().join("|");
+}
+
+function turntableNormalKey(normal: TurntablePoint): string {
+  return turntablePointKey(normal);
 }
 
 export function renderFurnitureTurntableFrame(
@@ -336,6 +357,7 @@ export function renderFurnitureTurntableFrame(
         points,
         normal,
         color: shadeColor(baseColor, shade),
+        styleKey: `${voxel.material}:${baseColor}`,
         depth: points.reduce((sum, point) => sum + point.x + point.y + point.z, 0) /
           points.length,
       });
@@ -382,6 +404,25 @@ export function renderFurnitureTurntableFrame(
     context.fill();
     context.restore();
   }
+  const edges = new Map<string, TurntableEdgeInfo>();
+  faces.forEach((face) => {
+    face.points.forEach((point, index) => {
+      const key = turntableEdgeKey(point, face.points[(index + 1) % face.points.length]);
+      const edge = edges.get(key) ?? {
+        count: 0,
+        normals: new Set<string>(),
+        styles: new Set<string>(),
+      };
+      edge.count += 1;
+      edge.normals.add(turntableNormalKey(face.normal));
+      edge.styles.add(face.styleKey);
+      edges.set(key, edge);
+    });
+  });
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.lineWidth = Math.max(1.5, renderSize / 384);
+  context.strokeStyle = "rgba(59, 51, 46, 0.84)";
   faces.sort((first, second) => first.depth - second.depth).forEach((face) => {
     const points = face.points.map(project);
     context.beginPath();
@@ -390,8 +431,20 @@ export function renderFurnitureTurntableFrame(
     context.closePath();
     context.fillStyle = face.color;
     context.fill();
+    if (!options.outline) return;
+    face.points.forEach((point, index) => {
+      const nextIndex = (index + 1) % face.points.length;
+      const edge = edges.get(turntableEdgeKey(point, face.points[nextIndex]));
+      if (
+        !edge ||
+        !(edge.count === 1 || edge.normals.size > 1 || edge.styles.size > 1)
+      ) return;
+      context.beginPath();
+      context.moveTo(points[index].x, points[index].y);
+      context.lineTo(points[nextIndex].x, points[nextIndex].y);
+      context.stroke();
+    });
   });
-  if (options.outline) applyVisiblePixelBoundaries(surface);
   outputContext.clearRect(0, 0, options.size, options.size);
   outputContext.imageSmoothingEnabled = true;
   outputContext.imageSmoothingQuality = "high";

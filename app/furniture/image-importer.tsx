@@ -2,6 +2,7 @@
 
 import {
   type ChangeEvent,
+  type DragEvent,
   useEffect,
   useMemo,
   useRef,
@@ -74,6 +75,7 @@ export function FurnitureImageImporter({
   const [reliefHeight, setReliefHeight] = useState(8);
   const [reliefSource, setReliefSource] = useState<"brightness" | "alpha">("brightness");
   const [status, setStatus] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
   const [hullSources, setHullSources] = useState<Partial<Record<"front" | "side" | "top", PixelImage>>>({});
   const [hullNames, setHullNames] = useState<Partial<Record<"front" | "side" | "top", string>>>({});
   const [hullWidth, setHullWidth] = useState(12);
@@ -125,10 +127,7 @@ export function FurnitureImageImporter({
     context.strokeRect(originX - 0.5, originY - 0.5, renderWidth + 1, renderHeight + 1);
   }, [preview]);
 
-  async function readFile(event: ChangeEvent<HTMLInputElement>): Promise<void> {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
+  async function openImageFile(file: File): Promise<void> {
     try {
       const decoded = await decodeImageFile(file);
       setSource(decoded);
@@ -146,6 +145,19 @@ export function FurnitureImageImporter({
         ? error.message
         : "이 브라우저에서 이미지를 읽지 못했어요. PNG·JPEG·WebP를 확인해주세요.");
     }
+  }
+
+  async function readFile(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) await openImageFile(file);
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>): void {
+    event.preventDefault();
+    setIsDragging(false);
+    const file = event.dataTransfer.files[0];
+    if (file) void openImageFile(file);
   }
 
   async function readHullFile(
@@ -223,9 +235,10 @@ export function FurnitureImageImporter({
           <p className="section-kicker">LOCAL PIXEL LAB</p>
           <h2 id="image-import-title">이미지를 도트와 복셀로</h2>
         </div>
-        <label className="button secondary image-file-button">
+        <label className="button secondary image-file-button" htmlFor="pixel-image-file">
           이미지 열기
           <input
+            id="pixel-image-file"
             type="file"
             accept="image/png,image/jpeg,image/webp,image/gif"
             onChange={readFile}
@@ -238,7 +251,20 @@ export function FurnitureImageImporter({
       </p>
 
       <div className="image-import-workspace">
-        <div className="pixel-preview-wrap">
+        <div
+          className="pixel-preview-wrap"
+          data-dragging={isDragging}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragOver={(event) => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+        >
           <canvas
             ref={previewRef}
             className="pixel-preview-canvas"
@@ -246,6 +272,13 @@ export function FurnitureImageImporter({
               ? `${preview.width} × ${preview.height} 도트 변환 미리보기`
               : "이미지를 열면 나타나는 도트 변환 미리보기"}
           />
+          {!source ? (
+            <label className="pixel-preview-empty" htmlFor="pixel-image-file">
+              <span className="section-kicker">DROP IMAGE</span>
+              <strong>이미지를 여기에 놓거나 클릭해 여세요</strong>
+              <small>선택하면 원본 대신 도트 변환 미리보기가 표시됩니다.</small>
+            </label>
+          ) : null}
           <p>{source ? `${sourceName} · ${preview?.palette.length ?? 0}색` : "PNG·JPEG·WebP·GIF 첫 프레임"}</p>
         </div>
 
@@ -309,7 +342,9 @@ export function FurnitureImageImporter({
           </label>
           {preview ? (
             <div className="pixel-palette" aria-label="변환 팔레트">
-              {preview.palette.map((color) => <span key={color} title={color} style={{ background: color }} />)}
+              {preview.palette.map((color, index) => (
+                <span key={`${color}-${index}`} title={color} style={{ background: color }} />
+              ))}
             </div>
           ) : null}
           <button type="button" className="button primary" disabled={!preview} onClick={applyImage}>

@@ -134,7 +134,10 @@ function gifLzw(indices: Uint8Array): Uint8Array {
       if (nextCode < 4096) {
         dictionary.set(key, nextCode);
         nextCode += 1;
-        if (nextCode === 1 << codeSize && codeSize < 12) codeSize += 1;
+        // A GIF decoder adds the matching dictionary entry after it reads the
+        // next code, so its table is one entry behind the encoder here. Keep
+        // the boundary code at the old width, then grow for following codes.
+        if (nextCode > (1 << codeSize) && codeSize < 12) codeSize += 1;
       } else {
         writeCode(clearCode);
         reset();

@@ -51,6 +51,10 @@ import {
   safeFurnitureFilename,
 } from "../../lib/furniture/export-image";
 import {
+  encodeFurnitureGlb,
+  encodeFurnitureObjZip,
+} from "../../lib/furniture/export-3d";
+import {
   decodeFurniture,
   encodeFurniture,
 } from "../../lib/furniture/codec";
@@ -1089,6 +1093,32 @@ export function FurnitureFoundry() {
     return new Blob([copy.buffer], { type });
   }
 
+  function exportGlb(): void {
+    if (furniture.voxels.length === 0) return;
+    try {
+      const bytes = encodeFurnitureGlb(furniture);
+      downloadBlob(
+        blobFromBytes(bytes, "model/gltf-binary"),
+        `${safeFurnitureFilename(furniture.name)}.glb`,
+      );
+      setExportStatus("미터 단위 GLB 3D 모델을 저장했어요. FURN1과 권리 정보도 파일 안에 들어갑니다.");
+    } catch (error) {
+      setExportStatus(error instanceof Error ? error.message : "GLB 모델을 만들지 못했어요.");
+    }
+  }
+
+  function exportObjMtlZip(): void {
+    if (furniture.voxels.length === 0) return;
+    try {
+      const base = safeFurnitureFilename(furniture.name);
+      const bytes = encodeFurnitureObjZip(furniture, base);
+      downloadBlob(blobFromBytes(bytes, "application/zip"), `${base}-obj.zip`);
+      setExportStatus("OBJ·MTL·FURN1·metadata.json·LICENSE.txt 묶음을 저장했어요.");
+    } catch (error) {
+      setExportStatus(error instanceof Error ? error.message : "OBJ·MTL 묶음을 만들지 못했어요.");
+    }
+  }
+
   async function exportEightDirectionSheet(): Promise<void> {
     if (furniture.voxels.length === 0 || furniture.placement === "wall") return;
     try {
@@ -2002,6 +2032,22 @@ export function FurnitureFoundry() {
               </button>
               <button
                 type="button"
+                className="button secondary"
+                disabled={furniture.voxels.length === 0}
+                onClick={exportGlb}
+              >
+                GLB 3D 모델
+              </button>
+              <button
+                type="button"
+                className="button secondary"
+                disabled={furniture.voxels.length === 0}
+                onClick={exportObjMtlZip}
+              >
+                OBJ·MTL ZIP
+              </button>
+              <button
+                type="button"
                 className="button primary"
                 disabled={furniture.voxels.length === 0}
                 onClick={() => void exportBundle()}
@@ -2012,7 +2058,9 @@ export function FurnitureFoundry() {
             <p className="control-note">
               8방향은 45° 간격의 실제 복셀 시점을 사용합니다. ZIP에는 이미지,
               FURN1, 프레임·바닥 기준점 JSON과 LICENSE가 함께 들어갑니다.
-              벽 소품은 단일 이미지 묶음으로 내보냅니다.
+              벽 소품은 단일 이미지 묶음으로 내보냅니다. 3D 파일은 Y축이 위인
+              미터 단위이며 1× 복셀 한 칸은 10cm입니다. GLB에는 재질·FURN1·권리
+              정보를 넣고, OBJ ZIP에는 MTL·FURN1·metadata.json·LICENSE.txt를 함께 둡니다.
             </p>
             <p className="status" aria-live="polite">{exportStatus}</p>
           </div>

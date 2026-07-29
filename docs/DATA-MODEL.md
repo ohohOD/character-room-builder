@@ -28,6 +28,8 @@ FURN1 코드는 정규화한 UTF-8 JSON을 URL-safe Base64로 인코딩하고 FN
 
 외부 도구용 ZIP 묶음의 `metadata.json`은 스키마 식별자, 프레임 크기·수·시간, 방향, 정규화한 바닥 기준점, 배치 종류, 해상도, rendererVersion과 라이선스·제작자 표기를 담는다. `LICENSE.txt`와 FURN1도 별도 파일로 함께 둔다. 이미지 메타데이터는 다른 도구에서 제거될 수 있으므로 권리 정보의 유일한 저장소로 사용하지 않는다.
 
+3D 내보내기 역시 FurnitureDefinition을 바꾸지 않는 파생 작업이다. GLB와 OBJ는 오른손 Y-up·미터 단위·바닥 중앙 기준점을 사용하며 1× 셀 한 변을 0.1m로 고정한다. GLB의 노드 `extras.characterRoomBuilder`에는 FURN1, 배치 종류, 해상도, rendererVersion, 단위·기준점과 권리 정보를 넣는다. OBJ ZIP의 `metadata.json`은 동일한 축·단위·기준점, 메시 범위와 정점·삼각형·재질 수, 권리 정보를 기록하고 MTL·FURN1·LICENSE를 함께 둔다. 이 메타데이터는 외부 프로그램이 제거할 수 있으므로 FURN1과 LICENSE 파일을 별도로 유지한다.
+
 ## 픽셀 표면과 다음 스키마
 
 현재 이미지 도트 변환은 메모리의 양자화 결과를 표면색이 있는 기존 FurnitureVoxel로 명시적으로 바꾼다. 따라서 벽·바닥 패널, 밝기·알파 부조와 삼면 실루엣 교집합도 별도 원본이나 EXIF 없이 기존 FURN1 검증·라이선스·9,600셀 상한을 그대로 따른다. 이미지 원본과 변환 설정은 정본에 포함되지 않는다.

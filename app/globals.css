@@ -22,11 +22,30 @@ html {
 }
 
 body {
-  min-width: 320px;
+  min-width: 0;
   margin: 0;
   color: var(--ink);
   background: var(--paper);
   font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 10px;
+  left: 10px;
+  min-height: 44px;
+  padding: 11px 14px;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  color: #ffffff;
+  background: var(--ink);
+  text-decoration: none;
+  transform: translateY(-160%);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
 }
 
 button,
@@ -93,8 +112,10 @@ h1 {
 .product-nav a {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: 44px;
   min-height: 44px;
-  padding-bottom: 3px;
+  padding: 0 4px 3px;
   border-bottom: 1px solid transparent;
   color: var(--muted);
   font-size: 12px;
@@ -405,6 +426,49 @@ canvas:focus-visible {
   width: min(1380px, calc(100% - 40px));
 }
 
+.foundry-jump-nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: rgba(251, 250, 246, 0.82);
+}
+
+.foundry-jump-nav a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 48px;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.foundry-jump-nav a + a {
+  border-left: 1px solid var(--line-strong);
+}
+
+.foundry-jump-nav a:hover {
+  color: var(--sage);
+  background: var(--sage-soft);
+}
+
+.foundry-jump-nav span {
+  color: var(--sage);
+  font: 9px / 1 "Cascadia Code", Consolas, monospace;
+}
+
+.foundry-workspace,
+.image-import-section,
+.export-studio {
+  scroll-margin-top: 70px;
+}
+
 .foundry-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 350px;
@@ -511,7 +575,7 @@ canvas:focus-visible {
 }
 
 .view-switch button {
-  min-height: 38px;
+  min-height: 44px;
   padding: 6px 10px;
   border: 0;
   color: var(--muted);
@@ -605,6 +669,25 @@ canvas:focus-visible {
 
 .foundry-panel {
   min-width: 0;
+}
+
+.compact-view-label {
+  display: none;
+}
+
+.foundry-panel-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.foundry-panel-group-toggle {
+  display: none;
+  width: 100%;
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
 }
 
 .foundry-panel section {
@@ -1215,12 +1298,26 @@ canvas:focus-visible {
 .image-number-grid input,
 .image-number-grid select {
   min-width: 0;
-  min-height: 42px;
+  min-height: 44px;
   padding: 8px 10px;
   border: 1px solid var(--line-strong);
   border-radius: 4px;
   color: var(--ink);
   background: var(--surface);
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.check-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--sage);
 }
 
 .pixel-palette {
@@ -1468,6 +1565,30 @@ canvas:focus-visible {
   cursor: not-allowed;
 }
 
+@media (min-width: 901px) {
+  .foundry-workspace {
+    align-items: start;
+  }
+
+  .foundry-stage {
+    align-self: start;
+  }
+
+  .foundry-panel {
+    position: sticky;
+    top: 16px;
+    max-height: calc(100svh - 32px);
+    padding-right: 10px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .foundry-panel-group > .foundry-panel-group-body {
+    display: block !important;
+  }
+}
+
 @media (max-width: 900px) {
   .masthead {
     display: grid;
@@ -1487,10 +1608,75 @@ canvas:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .foundry-jump-nav {
+    position: sticky;
+    z-index: 20;
+    top: 0;
+    margin-inline: -1px;
+    background: rgba(251, 250, 246, 0.96);
+  }
+
   .foundry-panel {
+    display: block;
+  }
+
+  .foundry-panel-group {
+    border-top: 1px solid var(--line);
+  }
+
+  .foundry-panel-group-toggle {
+    display: flex;
+    align-items: center;
+    min-height: 68px;
+    gap: 12px;
+    padding: 12px 0;
+    cursor: pointer;
+  }
+
+  .foundry-panel-group-toggle > span:first-child {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0 24px;
+    flex: 1 1 auto;
+    gap: 2px;
+  }
+
+  .foundry-panel-group-toggle .section-kicker {
+    margin-bottom: 0;
+    font-size: 9px;
+  }
+
+  .foundry-panel-group-toggle strong {
+    font: 700 17px / 1.25 Georgia, "Times New Roman", serif;
+  }
+
+  .foundry-panel-group-state {
+    max-width: 132px;
+    overflow: hidden;
+    color: var(--muted);
+    font: 9px / 1.4 "Cascadia Code", Consolas, monospace;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .foundry-panel-group-toggle::after {
+    min-width: 28px;
+    color: var(--sage);
+    content: "열기";
+    font-size: 10px;
+    font-weight: 750;
+    text-align: right;
+  }
+
+  .foundry-panel-group[data-open="true"] > .foundry-panel-group-toggle::after {
+    content: "접기";
+  }
+
+  .foundry-panel-group[data-open="false"] > .foundry-panel-group-body {
+    display: none;
+  }
+
+  .foundry-panel-group[data-open="true"] > .foundry-panel-group-body {
+    padding-bottom: 8px;
   }
 
   .foundry-panel section:first-child {
@@ -1582,14 +1768,40 @@ canvas:focus-visible {
     width: min(100% - 24px, 1380px);
   }
 
+  .foundry-jump-nav a {
+    min-height: 52px;
+    gap: 4px;
+    padding-inline: 5px;
+    font-size: 10px;
+  }
+
+  .wide-view-label {
+    display: none;
+  }
+
+  .compact-view-label {
+    display: inline;
+  }
+
   .foundry-stage-bar {
     display: grid;
-    align-items: flex-start;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
     padding: 12px;
   }
 
   .history-controls {
-    width: 100%;
+    width: auto;
+  }
+
+  .foundry-stage-bar h2 {
+    font-size: 18px;
+  }
+
+  .history-controls button {
+    padding-inline: 7px;
+    font-size: 10px;
   }
 
   .tool-switch {
@@ -1611,7 +1823,7 @@ canvas:focus-visible {
   }
 
   .foundry-canvas {
-    height: 500px;
+    height: clamp(340px, 100vw, 420px);
   }
 
   .foundry-help,

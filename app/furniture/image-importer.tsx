@@ -229,7 +229,11 @@ export function FurnitureImageImporter({
   }
 
   return (
-    <section className="image-import-section" aria-labelledby="image-import-title">
+    <section
+      className="image-import-section"
+      id="foundry-image-import"
+      aria-labelledby="image-import-title"
+    >
       <div className="image-import-heading">
         <div>
           <p className="section-kicker">LOCAL PIXEL LAB</p>

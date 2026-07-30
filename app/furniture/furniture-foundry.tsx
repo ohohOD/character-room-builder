@@ -160,6 +160,8 @@ function editableLayer(furniture: FurnitureDefinition): number {
   );
 }
 
+type FoundryPanelGroup = "shape" | "material" | "share";
+
 export function FurnitureFoundry() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const exportCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -211,6 +213,7 @@ export function FurnitureFoundry() {
   const [exportShadow, setExportShadow] = useState(true);
   const [exportDuration, setExportDuration] = useState(140);
   const [exportStatus, setExportStatus] = useState("");
+  const [openPanelGroups, setOpenPanelGroups] = useState<FoundryPanelGroup[]>([]);
   const editPlane = editPlaneForView(furniture, editView);
   const selectedCells = useMemo(
     () => cellsInFurnitureSelection(furniture, selection, editPlane),
@@ -222,6 +225,12 @@ export function FurnitureFoundry() {
   }, [furniture.voxels, selectedCells]);
   const canUndo = historyState.undo > 0;
   const canRedo = historyState.redo > 0;
+
+  function togglePanelGroup(group: FoundryPanelGroup): void {
+    setOpenPanelGroups((current) => current.includes(group)
+      ? current.filter((candidate) => candidate !== group)
+      : [...current, group]);
+  }
 
   useEffect(() => {
     furnitureRef.current = furniture;
@@ -1236,6 +1245,7 @@ export function FurnitureFoundry() {
 
   return (
     <main className="shell foundry-shell">
+      <a className="skip-link" href="#foundry-editor">편집기로 바로가기</a>
       <header className="masthead">
         <div>
           <nav className="product-nav" aria-label="프로젝트 화면">
@@ -1251,7 +1261,13 @@ export function FurnitureFoundry() {
         </p>
       </header>
 
-      <div className="foundry-workspace">
+      <nav className="foundry-jump-nav" aria-label="공방 작업 단계">
+        <a href="#foundry-editor"><span>01</span>가구 편집</a>
+        <a href="#foundry-image-import"><span>02</span>이미지 변환</a>
+        <a href="#foundry-export"><span>03</span>파일 내보내기</a>
+      </nav>
+
+      <div className="foundry-workspace" id="foundry-editor">
         <section className="foundry-stage" aria-labelledby="furniture-title">
           <div className="foundry-stage-bar">
             <div>
@@ -1307,9 +1323,19 @@ export function FurnitureFoundry() {
                     disabled={disabled}
                     data-active={editView === item.id}
                     aria-pressed={editView === item.id}
+                    aria-label={`${item.label} 시점`}
                     onClick={() => chooseEditView(item.id)}
                   >
-                    {item.label}
+                    {item.id === "isometric" ? (
+                      <>
+                        <span className="wide-view-label" aria-hidden="true">
+                          {item.label}
+                        </span>
+                        <span className="compact-view-label" aria-hidden="true">
+                          입체
+                        </span>
+                      </>
+                    ) : item.label}
                   </button>
                 );
               })}
@@ -1381,7 +1407,24 @@ export function FurnitureFoundry() {
           </div>
         </section>
 
-        <aside className="foundry-panel">
+        <aside className="foundry-panel" aria-label="가구 편집 설정">
+          <div className="foundry-panel-group" data-open={openPanelGroups.includes("shape")}>
+            <button
+              type="button"
+              className="foundry-panel-group-toggle"
+              aria-expanded={openPanelGroups.includes("shape")}
+              aria-controls="foundry-shape-controls"
+              onClick={() => togglePanelGroup("shape")}
+            >
+              <span>
+                <span className="section-kicker">SHAPE &amp; EDIT</span>
+                <strong>형태와 편집</strong>
+              </span>
+              <span className="foundry-panel-group-state">
+                {placementCopy.name} · {furniture.resolution}×
+              </span>
+            </button>
+            <div className="foundry-panel-group-body" id="foundry-shape-controls">
           <section>
             <p className="section-kicker">WORK SURFACE</p>
             <h2>어디에 놓을까요</h2>
@@ -1623,6 +1666,26 @@ export function FurnitureFoundry() {
             </p>
           </section>
 
+            </div>
+          </div>
+
+          <div className="foundry-panel-group" data-open={openPanelGroups.includes("material")}>
+            <button
+              type="button"
+              className="foundry-panel-group-toggle"
+              aria-expanded={openPanelGroups.includes("material")}
+              aria-controls="foundry-material-controls"
+              onClick={() => togglePanelGroup("material")}
+            >
+              <span>
+                <span className="section-kicker">MATERIAL &amp; COLOR</span>
+                <strong>재료와 색</strong>
+              </span>
+              <span className="foundry-panel-group-state">
+                {FURNITURE_MATERIALS[selectedMaterial].name} · {selectedColor}
+              </span>
+            </button>
+            <div className="foundry-panel-group-body" id="foundry-material-controls">
           <section>
             <fieldset className="material-fieldset">
               <legend>재료</legend>
@@ -1755,6 +1818,24 @@ export function FurnitureFoundry() {
             </p>
           </section>
 
+            </div>
+          </div>
+
+          <div className="foundry-panel-group" data-open={openPanelGroups.includes("share")}>
+            <button
+              type="button"
+              className="foundry-panel-group-toggle"
+              aria-expanded={openPanelGroups.includes("share")}
+              aria-controls="foundry-share-controls"
+              onClick={() => togglePanelGroup("share")}
+            >
+              <span>
+                <span className="section-kicker">IDENTITY &amp; SHARE</span>
+                <strong>이름과 공유</strong>
+              </span>
+              <span className="foundry-panel-group-state">{furniture.name}</span>
+            </button>
+            <div className="foundry-panel-group-body" id="foundry-share-controls">
           <section>
             <p className="section-kicker">IDENTITY & RIGHTS</p>
             <h2>이름과 출처</h2>
@@ -1846,6 +1927,8 @@ export function FurnitureFoundry() {
             </div>
             <p className="status" aria-live="polite">{status}</p>
           </section>
+            </div>
+          </div>
         </aside>
       </div>
 
@@ -1856,7 +1939,7 @@ export function FurnitureFoundry() {
         onApply={loadImportedFurniture}
       />
 
-      <section className="export-studio" aria-labelledby="export-title">
+      <section className="export-studio" id="foundry-export" aria-labelledby="export-title">
         <div className="export-heading">
           <div>
             <p className="section-kicker">TAKE IT WITH YOU</p>

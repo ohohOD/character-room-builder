@@ -124,10 +124,20 @@ function firstGifFrameIndices(data: Uint8Array): Uint8Array {
   return new Uint8Array(output);
 }
 
-function expectedGifIndex(red: number, green: number, blue: number, alpha: number): number {
-  if (alpha < 128) return 0;
-  return 1 + (Math.round(red * 5 / 255) * 6 + Math.round(green * 5 / 255)) * 7 +
-    Math.round(blue * 6 / 255);
+function firstGifFrameRgba(data: Uint8Array): Uint8ClampedArray {
+  const indices = firstGifFrameIndices(data);
+  const output = new Uint8ClampedArray(indices.length * 4);
+  indices.forEach((paletteIndex, index) => {
+    if (paletteIndex === 0) return;
+    const paletteOffset = 13 + paletteIndex * 3;
+    output.set([
+      data[paletteOffset],
+      data[paletteOffset + 1],
+      data[paletteOffset + 2],
+      255,
+    ], index * 4);
+  });
+  return output;
 }
 
 test("GIF 애니메이션은 투명 프레임과 반복 확장을 결정론적으로 인코드한다", () => {
@@ -151,24 +161,25 @@ test("GIF 애니메이션은 투명 프레임과 반복 확장을 결정론적�
   assert.equal(textAt(first, 0, 6), "GIF89a");
   assert.equal(first.at(-1), 0x3b);
   assert.ok(new TextDecoder().decode(first).includes("NETSCAPE2.0"));
+  assert.deepEqual(firstGifFrameRgba(first).slice(0, 4), new Uint8ClampedArray([141, 161, 141, 255]));
 });
 
-test("GIF LZW 사전의 코드 폭이 커져도 전체 프레임을 복원한다", () => {
+test("GIF 전역 팔레트는 255색까지 원본 RGB를 보존한다", () => {
   const width = 64;
   const height = 64;
   const firstFrame = new Uint8ClampedArray(width * height * 4);
   const secondFrame = new Uint8ClampedArray(width * height * 4);
-  const expected = new Uint8Array(width * height);
+  const expected = new Uint8ClampedArray(width * height * 4);
+  let state = 0x12345678;
   for (let index = 0; index < width * height; index += 1) {
-    const x = index % width;
-    const y = Math.floor(index / width);
-    const red = (x * 37 + y * 17) & 0xff;
-    const green = (x * 11 + y * 53) & 0xff;
-    const blue = (x * 71 + y * 7) & 0xff;
-    const alpha = (x + y) % 13 === 0 ? 0 : 255;
+    state = (state * 1_664_525 + 1_013_904_223) >>> 0;
+    const red = (state & 0x03) * 85;
+    const green = (state >>> 2 & 0x03) * 85;
+    const blue = (state >>> 4 & 0x03) * 85;
+    const alpha = index % 13 === 0 ? 0 : 255;
     firstFrame.set([red, green, blue, alpha], index * 4);
     secondFrame.set([blue, red, green, alpha], index * 4);
-    expected[index] = expectedGifIndex(red, green, blue, alpha);
+    expected.set(alpha === 0 ? [0, 0, 0, 0] : [red, green, blue, 255], index * 4);
   }
   const output = encodeAnimatedGif(
     [{ data: firstFrame }, { data: secondFrame }],
@@ -176,7 +187,44 @@ test("GIF LZW 사전의 코드 폭이 커져도 전체 프레임을 복원한다
     height,
     120,
   );
-  assert.deepEqual(firstGifFrameIndices(output), expected);
+  assert.deepEqual(firstGifFrameRgba(output), expected);
+});
+
+test("GIF 색이 255개를 넘으면 가까운 전역 팔레트로 결정론적으로 줄인다", () => {
+  const width = 32;
+  const height = 16;
+  const firstFrame = new Uint8ClampedArray(width * height * 4);
+  const secondFrame = new Uint8ClampedArray(width * height * 4);
+  for (let index = 0; index < width * height; index += 1) {
+    const red = index & 0xff;
+    const green = (index >>> 8) * 127;
+    const blue = (index * 73) & 0xff;
+    firstFrame.set([red, green, blue, 255], index * 4);
+    secondFrame.set([blue, green, red, 255], index * 4);
+  }
+  const first = encodeAnimatedGif(
+    [{ data: firstFrame }, { data: secondFrame }],
+    width,
+    height,
+    120,
+  );
+  const second = encodeAnimatedGif(
+    [{ data: firstFrame }, { data: secondFrame }],
+    width,
+    height,
+    120,
+  );
+  assert.deepEqual(first, second);
+
+  const decoded = firstGifFrameRgba(first);
+  let difference = 0;
+  for (let index = 0; index < decoded.length; index += 4) {
+    difference += Math.abs(decoded[index] - firstFrame[index]);
+    difference += Math.abs(decoded[index + 1] - firstFrame[index + 1]);
+    difference += Math.abs(decoded[index + 2] - firstFrame[index + 2]);
+    assert.equal(decoded[index + 3], 255);
+  }
+  assert.ok(difference / (width * height * 3) < 8);
 });
 
 test("정적 WebP 프레임을 VP8X·ANIM·ANMF 컨테이너로 묶는다", () => {

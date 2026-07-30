@@ -59,23 +59,178 @@ function readUint32(data: Uint8Array, offset: number): number {
   ) >>> 0;
 }
 
-function gifPalette(): Uint8Array {
-  const palette = new Uint8Array(256 * 3);
-  let index = 1;
-  for (let red = 0; red < 6; red += 1) {
-    for (let green = 0; green < 6; green += 1) {
-      for (let blue = 0; blue < 7; blue += 1) {
-        palette[index * 3] = Math.round(red * 255 / 5);
-        palette[index * 3 + 1] = Math.round(green * 255 / 5);
-        palette[index * 3 + 2] = Math.round(blue * 255 / 6);
-        index += 1;
-      }
-    }
-  }
-  return palette;
+interface GifHistogramColor {
+  packed: number;
+  count: number;
+  red: number;
+  green: number;
+  blue: number;
 }
 
-function frameToGifIndices(frame: RgbaFrame, width: number, height: number): Uint8Array {
+interface GifColorBox {
+  colors: GifHistogramColor[];
+  count: number;
+  ranges: [number, number, number];
+}
+
+interface GifPalette {
+  bytes: Uint8Array;
+  colors: number[];
+  directIndices: Map<number, number>;
+  nearestIndices: Map<number, number>;
+}
+
+function packRgb(red: number, green: number, blue: number): number {
+  return red << 16 | green << 8 | blue;
+}
+
+function gifColorBox(colors: GifHistogramColor[]): GifColorBox {
+  let count = 0;
+  let redMin = 255;
+  let redMax = 0;
+  let greenMin = 255;
+  let greenMax = 0;
+  let blueMin = 255;
+  let blueMax = 0;
+  colors.forEach((color) => {
+    count += color.count;
+    redMin = Math.min(redMin, color.red);
+    redMax = Math.max(redMax, color.red);
+    greenMin = Math.min(greenMin, color.green);
+    greenMax = Math.max(greenMax, color.green);
+    blueMin = Math.min(blueMin, color.blue);
+    blueMax = Math.max(blueMax, color.blue);
+  });
+  return {
+    colors,
+    count,
+    ranges: [redMax - redMin, greenMax - greenMin, blueMax - blueMin],
+  };
+}
+
+function splitGifColorBox(box: GifColorBox): [GifColorBox, GifColorBox] {
+  const channel = box.ranges[1] > box.ranges[0] && box.ranges[1] >= box.ranges[2]
+    ? 1
+    : box.ranges[2] > box.ranges[0] && box.ranges[2] > box.ranges[1]
+      ? 2
+      : 0;
+  const channelValue = (color: GifHistogramColor) =>
+    channel === 0 ? color.red : channel === 1 ? color.green : color.blue;
+  const colors = [...box.colors].sort(
+    (first, second) => channelValue(first) - channelValue(second) || first.packed - second.packed,
+  );
+  let splitAt = 1;
+  let cumulative = colors[0].count;
+  while (splitAt < colors.length - 1 && cumulative < box.count / 2) {
+    cumulative += colors[splitAt].count;
+    splitAt += 1;
+  }
+  return [
+    gifColorBox(colors.slice(0, splitAt)),
+    gifColorBox(colors.slice(splitAt)),
+  ];
+}
+
+function colorDistance(
+  red: number,
+  green: number,
+  blue: number,
+  otherRed: number,
+  otherGreen: number,
+  otherBlue: number,
+): number {
+  const redDifference = red - otherRed;
+  const greenDifference = green - otherGreen;
+  const blueDifference = blue - otherBlue;
+  return (
+    redDifference * redDifference * 3 +
+    greenDifference * greenDifference * 4 +
+    blueDifference * blueDifference * 2
+  );
+}
+
+function representativeGifColor(box: GifColorBox): number {
+  let redTotal = 0;
+  let greenTotal = 0;
+  let blueTotal = 0;
+  box.colors.forEach((color) => {
+    redTotal += color.red * color.count;
+    greenTotal += color.green * color.count;
+    blueTotal += color.blue * color.count;
+  });
+  const red = redTotal / box.count;
+  const green = greenTotal / box.count;
+  const blue = blueTotal / box.count;
+  return box.colors.reduce((best, color) => {
+    const distance = colorDistance(red, green, blue, color.red, color.green, color.blue);
+    const bestDistance = colorDistance(red, green, blue, best.red, best.green, best.blue);
+    return distance < bestDistance || distance === bestDistance && color.packed < best.packed
+      ? color
+      : best;
+  }).packed;
+}
+
+function selectGifColors(histogram: Map<number, number>): number[] {
+  const colors = [...histogram].map(([packed, count]) => ({
+    packed,
+    count,
+    red: packed >>> 16,
+    green: packed >>> 8 & 0xff,
+    blue: packed & 0xff,
+  }));
+  if (colors.length <= 255) return colors.map((color) => color.packed).sort((a, b) => a - b);
+
+  const boxes = [gifColorBox(colors)];
+  while (boxes.length < 255) {
+    let selected = -1;
+    let selectedScore = -1;
+    boxes.forEach((box, index) => {
+      if (box.colors.length < 2) return;
+      const score = Math.max(...box.ranges) * box.count;
+      if (score > selectedScore) {
+        selected = index;
+        selectedScore = score;
+      }
+    });
+    if (selected < 0) break;
+    const [first, second] = splitGifColorBox(boxes[selected]);
+    boxes.splice(selected, 1, first, second);
+  }
+  return boxes.map(representativeGifColor).sort((a, b) => a - b);
+}
+
+function gifPalette(frames: RgbaFrame[], width: number, height: number): GifPalette {
+  const histogram = new Map<number, number>();
+  frames.forEach((frame) => {
+    if (frame.data.length !== width * height * 4) {
+      throw new Error("GIF 프레임의 픽셀 수가 맞지 않아요.");
+    }
+    for (let offset = 0; offset < frame.data.length; offset += 4) {
+      if (frame.data[offset + 3] < 128) continue;
+      const packed = packRgb(frame.data[offset], frame.data[offset + 1], frame.data[offset + 2]);
+      histogram.set(packed, (histogram.get(packed) ?? 0) + 1);
+    }
+  });
+  const colors = selectGifColors(histogram);
+  if (colors.length === 0) colors.push(0);
+  const bytes = new Uint8Array(256 * 3);
+  const directIndices = new Map<number, number>();
+  colors.forEach((color, index) => {
+    const paletteIndex = index + 1;
+    bytes[paletteIndex * 3] = color >>> 16;
+    bytes[paletteIndex * 3 + 1] = color >>> 8 & 0xff;
+    bytes[paletteIndex * 3 + 2] = color & 0xff;
+    directIndices.set(color, paletteIndex);
+  });
+  return { bytes, colors, directIndices, nearestIndices: new Map() };
+}
+
+function frameToGifIndices(
+  frame: RgbaFrame,
+  width: number,
+  height: number,
+  palette: GifPalette,
+): Uint8Array {
   if (frame.data.length !== width * height * 4) {
     throw new Error("GIF 프레임의 픽셀 수가 맞지 않아요.");
   }
@@ -86,10 +241,38 @@ function frameToGifIndices(frame: RgbaFrame, width: number, height: number): Uin
       indices[index] = 0;
       continue;
     }
-    const red = Math.round(frame.data[offset] * 5 / 255);
-    const green = Math.round(frame.data[offset + 1] * 5 / 255);
-    const blue = Math.round(frame.data[offset + 2] * 6 / 255);
-    indices[index] = 1 + (red * 6 + green) * 7 + blue;
+    const red = frame.data[offset];
+    const green = frame.data[offset + 1];
+    const blue = frame.data[offset + 2];
+    const packed = packRgb(red, green, blue);
+    const directIndex = palette.directIndices.get(packed);
+    if (directIndex !== undefined) {
+      indices[index] = directIndex;
+      continue;
+    }
+    const cachedIndex = palette.nearestIndices.get(packed);
+    if (cachedIndex !== undefined) {
+      indices[index] = cachedIndex;
+      continue;
+    }
+    let nearestIndex = 1;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    palette.colors.forEach((color, paletteColorIndex) => {
+      const distance = colorDistance(
+        red,
+        green,
+        blue,
+        color >>> 16,
+        color >>> 8 & 0xff,
+        color & 0xff,
+      );
+      if (distance < nearestDistance) {
+        nearestIndex = paletteColorIndex + 1;
+        nearestDistance = distance;
+      }
+    });
+    palette.nearestIndices.set(packed, nearestIndex);
+    indices[index] = nearestIndex;
   }
   return indices;
 }
@@ -160,10 +343,11 @@ export function encodeAnimatedGif(
   if (frames.length < 2 || width < 1 || height < 1 || width > 65_535 || height > 65_535) {
     throw new Error("GIF 프레임이나 크기가 올바르지 않아요.");
   }
+  const palette = gifPalette(frames, width, height);
   const bytes: number[] = [...ascii("GIF89a")];
   writeUint16(bytes, width);
   writeUint16(bytes, height);
-  bytes.push(0xf7, 0, 0, ...gifPalette());
+  bytes.push(0xf7, 0, 0, ...palette.bytes);
   bytes.push(0x21, 0xff, 0x0b, ...ascii("NETSCAPE2.0"), 0x03, 0x01, 0, 0, 0);
   const delay = Math.max(1, Math.min(65_535, Math.round(durationMs / 10)));
   frames.forEach((frame) => {
@@ -174,7 +358,7 @@ export function encodeAnimatedGif(
     writeUint16(bytes, width);
     writeUint16(bytes, height);
     bytes.push(0, 8);
-    const compressed = gifLzw(frameToGifIndices(frame, width, height));
+    const compressed = gifLzw(frameToGifIndices(frame, width, height, palette));
     for (let offset = 0; offset < compressed.length; offset += 255) {
       const block = compressed.slice(offset, offset + 255);
       bytes.push(block.length, ...block);
